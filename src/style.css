@@ -2427,6 +2427,10 @@ button:disabled {
 }
 
 /* ── Chat-Style Account Activity Modal ────────────────────────────────────── */
+#confirmModal {
+  z-index: 250;
+}
+
 .modal-card--chat {
   width: min(500px, 100%);
   max-height: 90vh;

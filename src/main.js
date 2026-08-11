@@ -3234,18 +3234,14 @@ document.querySelectorAll('[data-action="onboarding-skip"]').forEach((btn) => bt
 document.querySelectorAll('[data-action="onboarding-create-account"]').forEach((btn) => btn.addEventListener("click", onboardingCreateAccount));
 document.querySelectorAll('[data-action="onboarding-finish"]').forEach((btn) => btn.addEventListener("click", dismissOnboarding));
 
-// Close modals on backdrop/close-button
+// Close modals only via close-button
 document.addEventListener("click", (event) => {
-  if (event.target.classList.contains("modal-overlay") && event.target !== el.confirmModal) { closeModal(event.target); return; }
   const closeBtn = event.target.closest("[data-modal].modal-close-btn");
   if (closeBtn) { const modal = document.querySelector(`#${closeBtn.dataset.modal}`); if (modal) closeModal(modal); }
 });
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  if (!el.confirmModal.classList.contains("hidden")) { handleConfirmNo(); return; }
-  const open = document.querySelector(".modal-overlay:not(.hidden)");
-  if (open) closeModal(open);
   if (el.settingsPanel.classList.contains("open")) closeSettings();
   if (el.filterSheet.classList.contains("open")) closeFilterSheet();
 });
