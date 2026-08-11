@@ -1,44 +1,92 @@
 const CATEGORY_RULES = [
   {
     category: "Groceries",
-    words: ["grocery", "groceries", "vegetable", "vegetables", "milk", "supermarket"]
+    words: [
+      "grocery", "groceries", "vegetable", "vegetables", "milk", "supermarket",
+      "rice", "dal", "oil", "flour", "sugar", "salt", "egg", "eggs", "curd",
+      "butter", "ghee", "atta", "maida", "wheat", "pulses",
+      "orange", "apple", "banana", "mango", "grapes", "fruits", "fruit",
+      "onion", "tomato", "potato",
+      // Tanglish - Groceries & Kitchen
+      "arisi", "paruppu", "ennai", "kadalai", "ellu", "thengai",
+      "maavu", "sakkarai", "uppu", "paal", "thayir", "vennai", "nei",
+      "muttai", "mor", "rasam", "sambar",
+      // Tanglish - Vegetables & Fruits
+      "kaai", "keerai", "vengayam", "thakkali", "urulaikilangu",
+      "pazham", "vaazhaipazham", "maadhulai", "koyyapazham",
+      "drumstick", "murungakkai", "kathirikai", "vendakkai",
+      // Tanglish - Market/Shop
+      "santhai", "santhaiyil", "maligai", "provision",
+      // Tanglish - Cattle/Farm supplies
+      "punnakku", "thavidu", "vaikkol", "thaaniyam"
+    ]
   },
   {
     category: "Food",
     words: [
       "breakfast", "lunch", "dinner", "food", "snack", "snacks",
-      "tea", "coffee", "restaurant", "swiggy", "zomato", "hotel"
+      "tea", "coffee", "restaurant", "swiggy", "zomato", "hotel",
+      "biryani", "biriyani", "pizza", "burger", "noodles", "parcel",
+      // Tanglish - Food
+      "saapadu", "sapadu", "tiffin", "dosai", "dosa", "idli", "idly",
+      "parotta", "chapathi", "poori", "pongal", "upma", "vadai",
+      "bajji", "bonda", "murukku", "mixture", "chips",
+      "kaapi", "theneer", "juice", "lassi", "buttermilk",
+      "mess", "kadai saapadu", "saapaadu"
     ]
   },
   {
     category: "Transport",
     words: [
       "petrol", "diesel", "fuel", "bus", "train", "taxi", "uber",
-      "ola", "auto", "parking", "toll", "travel"
+      "ola", "auto", "parking", "toll", "travel",
+      // Tanglish
+      "vandy", "vandi", "bike", "scooter",
+      "bus ticket", "train ticket",
+      "perundhu", "reyil", "vaadagai"
     ]
   },
   {
     category: "Bills",
     words: [
       "electricity", "current bill", "water bill", "internet", "wifi",
-      "mobile bill", "recharge", "rent", "emi", "gas bill"
+      "mobile bill", "recharge", "rent", "emi", "gas bill",
+      // Tanglish
+      "current", "kaasu", "thண்ணீர்", "vaadasai", "vaadagai",
+      "cylinder", "gas"
     ]
   },
   {
     category: "Shopping",
-    words: ["shopping", "dress", "shirt", "shoe", "shoes", "amazon", "flipkart"]
+    words: [
+      "shopping", "dress", "shirt", "shoe", "shoes", "amazon", "flipkart",
+      // Tanglish
+      "thunி", "pudhu dress", "saree", "sattai", "lungi", "chappal"
+    ]
   },
   {
     category: "Health",
-    words: ["medicine", "medical", "doctor", "hospital", "pharmacy", "health"]
+    words: [
+      "medicine", "medical", "doctor", "hospital", "pharmacy", "health",
+      // Tanglish
+      "marundhu", "maatthirai", "clinic", "lab", "test", "scan"
+    ]
   },
   {
     category: "Education",
-    words: ["course", "book", "books", "school", "college", "training", "exam"]
+    words: [
+      "course", "book", "books", "school", "college", "training", "exam",
+      // Tanglish
+      "fees", "palli", "padippu", "notebook", "tuition", "class"
+    ]
   },
   {
     category: "Entertainment",
-    words: ["movie", "cinema", "netflix", "prime", "game", "games"]
+    words: [
+      "movie", "cinema", "netflix", "prime", "game", "games",
+      // Tanglish
+      "padam", "padam ticket", "theatre", "theater", "park", "outing"
+    ]
   }
 ];
 
@@ -80,21 +128,22 @@ function parseDate(text) {
 
 function detectAmount(text) {
   const normalized = text.replace(/,/g, "");
-  const matches = normalized.match(/\b\d+(?:\.\d{1,2})?\b/g);
+  const matches = normalized.match(/(?<![A-Za-z])\d+(?:\.\d{1,2})?(?![A-Za-z])/g);
   if (!matches) return null;
 
-  for (const candidate of matches) {
-    const amount = Number(candidate);
-    if (Number.isFinite(amount) && amount > 0) return amount;
-  }
+  const amounts = matches
+    .map(Number)
+    .filter((n) => Number.isFinite(n) && n > 0);
 
-  return null;
+  if (amounts.length === 0) return null;
+  return amounts[amounts.length - 1];
 }
 
 function detectType(text) {
   const lower = text.toLowerCase();
   const incomeWords = [
-    "salary", "income", "received", "credited", "bonus", "freelance payment"
+    "salary", "income", "received", "credited", "bonus", "freelance payment",
+    "sambalam", "vaangune", "vanthathu"
   ];
   return incomeWords.some((word) => lower.includes(word))
     ? "income"
@@ -105,10 +154,19 @@ function detectCategory(text, type) {
   if (type === "income") return "Income";
 
   const lower = text.toLowerCase();
-  const matched = CATEGORY_RULES.find((rule) =>
-    rule.words.some((word) => lower.includes(word))
-  );
-  return matched?.category || "Other";
+  let bestCategory = "Other";
+  let bestLength = 0;
+
+  for (const rule of CATEGORY_RULES) {
+    for (const word of rule.words) {
+      if (lower.includes(word) && word.length > bestLength) {
+        bestLength = word.length;
+        bestCategory = rule.category;
+      }
+    }
+  }
+
+  return bestCategory;
 }
 
 function detectPaymentMethod(text) {

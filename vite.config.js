@@ -2,6 +2,17 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/firebase") || id.includes("node_modules/@firebase")) {
+            return "firebase";
+          }
+        },
+      },
+    },
+  },
   plugins: [
     VitePWA({
       registerType: "autoUpdate",
@@ -11,6 +22,7 @@ export default defineConfig({
         "icons/maskable-512.png"
       ],
       manifest: {
+        id: "/",
         name: "My Offline Expense Tracker",
         short_name: "My Expenses",
         description: "Offline-first personal expense tracker",
@@ -43,7 +55,18 @@ export default defineConfig({
         navigateFallback: "index.html",
         cleanupOutdatedCaches: true,
         clientsClaim: true,
-        skipWaiting: true
+        skipWaiting: true,
+        runtimeCaching: [
+          {
+            urlPattern: /cdn\.jsdelivr\.net\/npm\/tesseract/,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "tesseract-cache",
+              expiration: { maxEntries: 10, maxAgeSeconds: 30 * 24 * 60 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
       devOptions: {
         enabled: true

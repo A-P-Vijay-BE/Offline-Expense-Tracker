@@ -49,6 +49,42 @@ import {
   normalizeType,
 } from "./balance-engine.js";
 import { parseExpense } from "./parser.js";
+import {
+  isWebAuthnAvailable,
+  isAppLockEnabled,
+  enableAppLock,
+  disableAppLock,
+  verifyWithBiometrics,
+} from "./app-lock.js";
+// insights-engine.js is lazy-loaded where needed
+import {
+  logAudit as _logAudit,
+  pruneOldAuditEntries,
+  getAuditLog,
+  getAuditLogCount,
+  formatAuditEntry,
+  relativeTime,
+} from "./audit-log.js";
+
+function logAudit(...args) {
+  _logAudit(...args).catch((err) => console.warn("Audit log write failed:", err));
+}
+// chart-engine.js is lazy-loaded where needed
+import { initErrorMonitor, reportError } from "./error-monitor.js";
+import { initAnalytics, trackEvent, trackScreen } from "./analytics.js";
+
+// ── Initialize Monitoring ───────────────────────────────────────────────────
+initErrorMonitor();
+initAnalytics();
+
+// ── Global Error Handling ───────────────────────────────────────────────────
+window.addEventListener("unhandledrejection", (event) => {
+  console.error("Unhandled promise rejection:", event.reason);
+  reportError(event.reason, "unhandledrejection");
+  const msg = event.reason?.message || "An unexpected error occurred.";
+  const toast = document.querySelector("#toast");
+  if (toast) { toast.textContent = msg; toast.classList.remove("hidden"); setTimeout(() => toast.classList.add("hidden"), 3500); }
+});
 
 // ── PWA Registration ────────────────────────────────────────────────────────
 registerSW({
@@ -87,6 +123,12 @@ function suggestCategory(description) {
     if (words.some((w) => lower.includes(w))) return cat;
   }
   return "Other";
+}
+
+// ── Debounce Utility ───────────────────────────────────────────────────────
+function debounce(fn, ms = 250) {
+  let timer;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
 }
 
 // ── DOM Elements ────────────────────────────────────────────────────────────
@@ -243,6 +285,10 @@ let adjustmentTargetAccountId = null;
 let activityViewAccountId = null;
 let lastSelectedAccountId = null;
 let confirmResolve = null;
+let undoTimeout = null;
+let undoTransactions = [];
+let historyPageSize = 30;
+let historyDisplayCount = 30;
 
 // ── Utility Functions ───────────────────────────────────────────────────────
 function localDateKey(date = new Date()) {
@@ -298,7 +344,19 @@ function showMessage(element, text, isError = false) {
   element.classList.toggle("error", isError);
 }
 
+function setFieldError(fieldEl, errorEl, message) {
+  if (errorEl) errorEl.textContent = message;
+  if (fieldEl) fieldEl.classList.add(fieldEl.classList.contains("tx-amount-group") ? "tx-amount-group--error" : fieldEl.classList.contains("form-field") ? "form-field--error" : "tx-field--error");
+}
+
+function clearFieldError(fieldEl, errorEl) {
+  if (errorEl) errorEl.textContent = "";
+  if (fieldEl) fieldEl.classList.remove("tx-field--error", "form-field--error", "tx-amount-group--error");
+}
+
 function showToast(text) {
+  if (undoTimeout) { clearTimeout(undoTimeout); undoTransactions = []; }
+  el.toast.className = "toast";
   el.toast.textContent = text;
   el.toast.classList.remove("hidden");
   clearTimeout(showToast.timer);
@@ -315,7 +373,7 @@ function showConfirm(title, message) {
     el.confirmMessage.textContent = message;
     el.confirmModal.classList.remove("hidden");
     document.body.classList.add("modal-open");
-    el.confirmYes.focus();
+    el.confirmNo.focus();
   });
 }
 
@@ -436,6 +494,7 @@ function switchTab(key) {
     tab.panel.hidden = !isActive;
   }
   putSetting("lastTab", key);
+  trackScreen(key);
 }
 
 async function restoreLastTab() {
@@ -459,17 +518,28 @@ function updateLastSynced() {
 }
 
 // ── Balance Helpers ─────────────────────────────────────────────────────────
+const balanceCache = new Map();
+
 function getAccountBalance(accountId) {
+  if (balanceCache.has(accountId)) return balanceCache.get(accountId);
   const account = cachedAccounts.find((a) => a.id === accountId);
-  return calculateAccountBalance(account, cachedExpenses);
+  const balance = calculateAccountBalance(account, cachedExpenses);
+  balanceCache.set(accountId, balance);
+  return balance;
 }
 
 function getTotalBalance() {
   return calculateTotalAvailableBalance(cachedAccounts, cachedExpenses);
 }
 
+let cachedVisibleExpenses = [];
+
 function getVisibleExpenses() {
-  return cachedExpenses
+  return cachedVisibleExpenses;
+}
+
+function recomputeVisibleExpenses() {
+  cachedVisibleExpenses = cachedExpenses
     .filter((expense) => !expense.deleted)
     .sort((a, b) => String(b.occurredAt).localeCompare(String(a.occurredAt)));
 }
@@ -482,11 +552,16 @@ async function refreshUI() {
     getAllBudgets(),
     getAllRecurring(),
   ]);
+  balanceCache.clear();
+  recomputeVisibleExpenses();
   renderSummary();
   renderBudgets();
+  renderRecurring();
   renderRecentTransactions();
   renderCategories();
   renderTrendChart();
+  renderSpendingAnalysis();
+  renderInsights();
   renderHistory();
   renderSyncState();
   renderAccounts();
@@ -533,11 +608,13 @@ function renderBudgets() {
   if (!el.budgetList) return;
   if (!cachedBudgets.length) {
     el.budgetList.innerHTML = '<p class="budget-list__empty">No budgets set. Tap "+ Set Budget" to add one.</p>';
+    renderBudgetAlert([]);
     return;
   }
 
   const month = currentMonthKey();
   const visible = getVisibleExpenses();
+  const budgetData = [];
 
   el.budgetList.innerHTML = cachedBudgets.map((budget) => {
     const spent = visible
@@ -546,6 +623,7 @@ function renderBudgets() {
     const percent = budget.amount > 0 ? Math.round((spent / budget.amount) * 100) : 0;
     const statusClass = percent > 100 ? "budget-over" : percent >= 75 ? "budget-warning" : "";
     const barWidth = Math.min(percent, 100);
+    budgetData.push({ category: budget.category, spent, limit: budget.amount, percent });
     return `
       <div class="budget-item ${statusClass}" data-budget-id="${escapeHtml(budget.id)}">
         <div class="budget-item__header">
@@ -562,6 +640,66 @@ function renderBudgets() {
       </div>
     `;
   }).join("");
+
+  renderBudgetAlert(budgetData);
+}
+
+function renderBudgetAlert(budgetData) {
+  const alertCard = document.querySelector("#budgetAlertCard");
+  if (!alertCard) return;
+
+  const warnings = budgetData.filter((b) => b.percent >= 75).sort((a, b) => b.percent - a.percent);
+  if (!warnings.length) { alertCard.classList.add("hidden"); return; }
+
+  const top = warnings[0];
+  const remaining = top.limit - top.spent;
+  const fillClass = top.percent >= 100 ? "budget-alert-card__fill--danger" : "";
+
+  alertCard.classList.remove("hidden");
+  alertCard.innerHTML = `
+    <span class="budget-alert-card__icon">${top.percent >= 100 ? "🚨" : "⚠️"}</span>
+    <div class="budget-alert-card__text">
+      ${escapeHtml(top.category)}: ${escapeHtml(formatMoney(top.spent))} / ${escapeHtml(formatMoney(top.limit))} (${top.percent}%)
+      ${remaining > 0 ? ` — ${escapeHtml(formatMoney(remaining))} left this month` : " — Over budget!"}
+      <div class="budget-alert-card__progress">
+        <div class="budget-alert-card__fill ${fillClass}" style="width:${Math.min(top.percent, 100)}%"></div>
+      </div>
+    </div>
+  `;
+}
+
+// ── Recurring Transactions (Dashboard) ─────────────────────────────────────
+function renderRecurring() {
+  const list = document.querySelector("#recurringList");
+  if (!list) return;
+
+  const active = cachedRecurring.filter((r) => !r.paused && !r.deleted);
+  const paused = cachedRecurring.filter((r) => r.paused && !r.deleted);
+
+  if (!active.length && !paused.length) {
+    list.innerHTML = '<p class="empty-state">No recurring transactions. Use "Repeat" option when adding a transaction.</p>';
+    return;
+  }
+
+  let html = "";
+  for (const item of [...active, ...paused]) {
+    const isPaused = item.paused;
+    const freqLabel = item.frequency.charAt(0).toUpperCase() + item.frequency.slice(1);
+    const nextDate = item.nextOccurrence || "—";
+    html += `
+      <div class="recurring-item ${isPaused ? "recurring-item--paused" : ""}" data-recurring-id="${escapeHtml(item.id)}">
+        <div class="recurring-item__info">
+          <strong class="recurring-item__desc">${escapeHtml(item.description || item.category)}</strong>
+          <span class="recurring-item__meta">${escapeHtml(formatMoney(item.amount))} • ${escapeHtml(freqLabel)} • Next: ${escapeHtml(nextDate)}</span>
+        </div>
+        <div class="recurring-item__actions">
+          <button type="button" class="small-btn" data-action="${isPaused ? "resume" : "pause"}-recurring">${isPaused ? "Resume" : "Pause"}</button>
+          <button type="button" class="small-btn danger" data-action="delete-recurring">Delete</button>
+        </div>
+      </div>
+    `;
+  }
+  list.innerHTML = html;
 }
 
 // ── Recent Transactions (Dashboard) ─────────────────────────────────────────
@@ -575,9 +713,10 @@ function renderRecentTransactions() {
   el.recentTransactions.innerHTML = recent.map((item) => renderTransactionItem(item)).join("");
 }
 
-// ── Category Chart ──────────────────────────────────────────────────────────
-function renderCategories() {
+// ── Category Chart (Donut + collapsible details) ────────────────────────────
+async function renderCategories() {
   if (!el.categoryChart) return;
+  const { renderDonutChart } = await import("./chart-engine.js");
   const month = currentMonthKey();
   const categoryTotals = new Map();
 
@@ -595,8 +734,11 @@ function renderCategories() {
     return;
   }
 
+  const categories = sorted.map(([name, amount]) => ({ name, amount }));
+  const donut = renderDonutChart(categories, formatMoney);
+
   const maximum = sorted[0][1];
-  el.categoryChart.innerHTML = sorted.map(([category, amount]) => {
+  const bars = sorted.map(([category, amount]) => {
     const width = Math.max(5, Math.round((amount / maximum) * 100));
     return `
       <div class="category-row">
@@ -610,11 +752,19 @@ function renderCategories() {
       </div>
     `;
   }).join("");
+
+  el.categoryChart.innerHTML = donut + `
+    <details class="category-details">
+      <summary class="category-details__toggle">Show breakdown details</summary>
+      <div class="category-bars">${bars}</div>
+    </details>
+  `;
 }
 
-// ── Monthly Trend Chart ─────────────────────────────────────────────────────
-function renderTrendChart() {
+// ── Monthly Trend Chart (Line + Summary) ────────────────────────────────────
+async function renderTrendChart() {
   if (!el.trendChart) return;
+  const { renderLineChart } = await import("./chart-engine.js");
   const visible = getVisibleExpenses();
   const monthlyTotals = new Map();
 
@@ -632,25 +782,110 @@ function renderTrendChart() {
     return;
   }
 
-  const maxAmount = Math.max(...sorted.map(([, v]) => v));
+  const dataPoints = sorted.map(([monthKey, amount]) => ({
+    label: new Date(monthKey + "-01").toLocaleDateString(appSettings.locale, { month: "short" }),
+    value: amount,
+  }));
+
+  const lineChart = renderLineChart(dataPoints, formatMoney);
+
+  const curr = sorted[sorted.length - 1][1];
+  const prev = sorted[sorted.length - 2][1];
+  const change = prev > 0 ? Math.round(((curr - prev) / prev) * 100) : 0;
+  const changeLabel = change > 0 ? `+${change}%` : `${change}%`;
+  const changeClass = change > 0 ? "trend-up" : change < 0 ? "trend-down" : "";
+
   el.trendChart.innerHTML = `
-    <div class="trend-chart__bars">
-      ${sorted.map(([monthKey, amount]) => {
-        const height = maxAmount > 0 ? Math.max(5, Math.round((amount / maxAmount) * 100)) : 0;
-        const label = new Date(monthKey + "-01").toLocaleDateString(appSettings.locale, { month: "short" });
-        return `
-          <div class="trend-chart__col">
-            <div class="trend-chart__bar" style="height:${height}%" title="${escapeHtml(formatMoney(amount))}"></div>
-            <span class="trend-chart__label">${escapeHtml(label)}</span>
-          </div>
-        `;
-      }).join("")}
+    ${lineChart}
+    <div class="trend-chart__footer">
+      <span>This month: <strong>${escapeHtml(formatMoney(curr))}</strong></span>
+      <span class="trend-chart__change ${changeClass}">${escapeHtml(changeLabel)} vs last month</span>
     </div>
-    <p class="trend-chart__summary">
-      This month: ${escapeHtml(formatMoney(sorted[sorted.length - 1][1]))}
-      ${sorted.length >= 2 ? ` | Last month: ${escapeHtml(formatMoney(sorted[sorted.length - 2][1]))}` : ""}
-    </p>
   `;
+}
+
+// ── Spending Analysis (Heatmap + Income vs Expense) ─────────────────────────
+async function renderSpendingAnalysis() {
+  const container = document.querySelector("#spendingAnalysis");
+  if (!container) return;
+  const { renderIncomeExpenseBar, renderDailyHeatmap } = await import("./chart-engine.js");
+
+  const visible = getVisibleExpenses();
+  const month = currentMonthKey();
+  const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+
+  const dailySpend = new Array(daysInMonth).fill(0);
+  const monthlyIncome = new Map();
+  const monthlyExpense = new Map();
+
+  for (const item of visible) {
+    const t = normalizeType(item.type);
+    const mk = String(item.dateKey).slice(0, 7);
+    const amt = Number(item.amount);
+
+    if (t === "debit" && String(item.dateKey).startsWith(month)) {
+      const day = Number(String(item.dateKey).slice(8, 10));
+      if (day >= 1 && day <= daysInMonth) dailySpend[day - 1] += amt;
+    }
+
+    if (t === "debit") monthlyExpense.set(mk, (monthlyExpense.get(mk) || 0) + amt);
+    if (t === "credit") monthlyIncome.set(mk, (monthlyIncome.get(mk) || 0) + amt);
+  }
+
+  const dailyData = dailySpend.map((amount, i) => ({ day: i + 1, amount }));
+  const currentMonthLabel = new Date(month + "-01").toLocaleDateString(appSettings.locale, { month: "long", year: "numeric" });
+  const heatmap = renderDailyHeatmap(dailyData, currentMonthLabel, formatMoney);
+
+  const allMonths = new Set([...monthlyIncome.keys(), ...monthlyExpense.keys()]);
+  const sortedMonths = [...allMonths].sort().slice(-6);
+  const ieData = sortedMonths.map((mk) => ({
+    label: new Date(mk + "-01").toLocaleDateString(appSettings.locale, { month: "short" }),
+    income: monthlyIncome.get(mk) || 0,
+    expense: monthlyExpense.get(mk) || 0,
+  }));
+  const ieChart = renderIncomeExpenseBar(ieData, formatMoney);
+
+  if (!heatmap && !ieChart) {
+    container.innerHTML = '<p class="spending-analysis__placeholder">Spend consistently to see patterns and analysis here.</p>';
+    return;
+  }
+
+  container.innerHTML = heatmap + ieChart;
+}
+
+// ── Smart Insights ─────────────────────────────────────────────────────────
+async function renderInsights() {
+  const container = document.querySelector("#insightAlerts");
+  if (!container) return;
+  const { generateInsights } = await import("./insights-engine.js");
+
+  const insights = generateInsights(cachedExpenses, cachedAccounts, cachedBudgets, formatMoney);
+
+  if (!insights.length) {
+    container.innerHTML = '<p class="empty-state">Add more transactions to see spending insights.</p>';
+    return;
+  }
+
+  const iconSvgs = {
+    "trend-up": '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
+    "trend-down": '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>',
+    "alert": '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    "calendar": '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+    "streak": '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+    "forecast": '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+  };
+
+  container.innerHTML = insights.map((insight) => `
+    <div class="insight-card insight-card--${escapeHtml(insight.type)}">
+      <div class="insight-card__icon">
+        ${iconSvgs[insight.icon] || iconSvgs["alert"]}
+      </div>
+      <div class="insight-card__body">
+        <p class="insight-card__title">${escapeHtml(insight.title)}</p>
+        <p class="insight-card__desc">${escapeHtml(insight.description)}</p>
+      </div>
+    </div>
+  `).join("");
 }
 
 // ── Transaction Rendering ───────────────────────────────────────────────────
@@ -786,14 +1021,26 @@ function renderHistory() {
     return matchesType && matchesSearch && matchesAccount && matchesDate && matchesAmount;
   });
 
+  const totalFiltered = filtered.length;
+  const paginated = filtered.slice(0, historyDisplayCount);
+
+  // History count
+  const historyCount = document.querySelector("#historyCount");
+  const historyEndMarker = document.querySelector("#historyEndMarker");
+
+  if (historyCount) {
+    historyCount.textContent = `Showing ${paginated.length} of ${totalFiltered} transactions`;
+  }
+
   if (!filtered.length) {
     el.historyList.innerHTML = '<p class="empty-state">No matching records.</p>';
+    if (historyEndMarker) historyEndMarker.classList.add("hidden");
     return;
   }
 
   // Group by date
   const groups = new Map();
-  for (const item of filtered) {
+  for (const item of paginated) {
     const dk = item.dateKey || "Unknown";
     if (!groups.has(dk)) groups.set(dk, []);
     groups.get(dk).push(item);
@@ -806,6 +1053,11 @@ function renderHistory() {
   }
 
   el.historyList.innerHTML = html;
+  if (historyDisplayCount < totalFiltered) {
+    const loadMoreHtml = `<button type="button" class="load-more-btn" id="historyLoadMoreBtn">Load more (${totalFiltered - historyDisplayCount} remaining)</button>`;
+    el.historyList.insertAdjacentHTML("beforeend", loadMoreHtml);
+  }
+  if (historyEndMarker) historyEndMarker.classList.toggle("hidden", historyDisplayCount < totalFiltered);
 }
 
 // ── Sync State ──────────────────────────────────────────────────────────────
@@ -870,34 +1122,28 @@ function startCloudListener(user) {
   if (cloudUnsubscribe) cloudUnsubscribe();
   const unsubList = [];
 
+  async function reconcileSnapshot(snapshot) {
+    const localExpenses = await getAllExpenses();
+    const localMap = new Map(localExpenses.map((e) => [e.id, e]));
+    const incoming = [];
+    for (const cloudDoc of snapshot.docs) {
+      const remote = { id: cloudDoc.id, ...cloudDoc.data(), syncStatus: "synced", lastSyncError: "", syncedAt: new Date().toISOString() };
+      const local = localMap.get(remote.id);
+      if (!local || local.syncStatus === "synced" || String(remote.updatedAt) >= String(local.updatedAt)) {
+        incoming.push(remote);
+      }
+    }
+    if (incoming.length) { await bulkPutExpenses(incoming); await refreshUI(); }
+  }
+
   const txQuery = query(collection(firestore, "users", user.uid, "transactions"), orderBy("occurredAt", "desc"));
   unsubList.push(
-    onSnapshot(txQuery, { includeMetadataChanges: true }, async (snapshot) => {
-      const incoming = [];
-      for (const cloudDoc of snapshot.docs) {
-        const remote = { id: cloudDoc.id, ...cloudDoc.data(), syncStatus: "synced", lastSyncError: "", syncedAt: new Date().toISOString() };
-        const local = await getExpense(remote.id);
-        if (!local || local.syncStatus === "synced" || String(remote.updatedAt) >= String(local.updatedAt)) {
-          incoming.push(remote);
-        }
-      }
-      if (incoming.length) { await bulkPutExpenses(incoming); await refreshUI(); }
-    }, (error) => console.error("Cloud transactions listener error:", error))
+    onSnapshot(txQuery, { includeMetadataChanges: true }, reconcileSnapshot, (error) => console.error("Cloud transactions listener error:", error))
   );
 
   const expensesQuery = query(collection(firestore, "users", user.uid, "expenses"), orderBy("occurredAt", "desc"));
   unsubList.push(
-    onSnapshot(expensesQuery, { includeMetadataChanges: true }, async (snapshot) => {
-      const incoming = [];
-      for (const cloudDoc of snapshot.docs) {
-        const remote = { id: cloudDoc.id, ...cloudDoc.data(), syncStatus: "synced", lastSyncError: "", syncedAt: new Date().toISOString() };
-        const local = await getExpense(remote.id);
-        if (!local || local.syncStatus === "synced" || String(remote.updatedAt) >= String(local.updatedAt)) {
-          incoming.push(remote);
-        }
-      }
-      if (incoming.length) { await bulkPutExpenses(incoming); await refreshUI(); }
-    }, (error) => console.error("Cloud expenses listener error:", error))
+    onSnapshot(expensesQuery, { includeMetadataChanges: true }, reconcileSnapshot, (error) => console.error("Cloud expenses listener error:", error))
   );
 
   const accountsQuery = query(collection(firestore, "users", user.uid, "accounts"), orderBy("updatedAt", "desc"));
@@ -1026,13 +1272,32 @@ async function handleTransactionSubmit(event) {
   const repeat = el.txRepeat ? el.txRepeat.value : "none";
   const now = new Date().toISOString();
 
+  const amountGroup = document.getElementById("txAmountGroup");
+  const amountErr = document.getElementById("txAmountError");
+  const descField = document.getElementById("txDescriptionField");
+  const descErr = document.getElementById("txDescriptionError");
+  const acctGroup = document.getElementById("txSingleAccountGroup");
+  const acctErr = document.getElementById("txAccountError");
+  const fromField = document.getElementById("txFromAccountField");
+  const fromErr = document.getElementById("txFromAccountError");
+  const toField = document.getElementById("txToAccountField");
+  const toErr = document.getElementById("txToAccountError");
+
+  clearFieldError(amountGroup, amountErr);
+  clearFieldError(descField, descErr);
+  clearFieldError(acctGroup, acctErr);
+  clearFieldError(fromField, fromErr);
+  clearFieldError(toField, toErr);
+  showMessage(el.composerMessage, "");
+
+  let hasError = false;
   if (!amount || amount <= 0) {
-    showMessage(el.composerMessage, "Amount must be greater than zero.", true);
-    return;
+    setFieldError(amountGroup, amountErr, "Amount must be greater than zero.");
+    hasError = true;
   }
   if (!description) {
-    showMessage(el.composerMessage, "Please enter a description.", true);
-    return;
+    setFieldError(descField, descErr, "Please enter a description.");
+    hasError = true;
   }
 
   let transaction;
@@ -1040,8 +1305,10 @@ async function handleTransactionSubmit(event) {
   if (txType === "transfer") {
     const fromId = el.txFromAccount.value;
     const toId = el.txToAccount.value;
-    if (!fromId || !toId) { showMessage(el.composerMessage, "Please select both accounts.", true); return; }
-    if (fromId === toId) { showMessage(el.composerMessage, "Source and destination cannot be the same.", true); return; }
+    if (!fromId) { setFieldError(fromField, fromErr, "Select source account."); hasError = true; }
+    if (!toId) { setFieldError(toField, toErr, "Select destination account."); hasError = true; }
+    if (hasError) return;
+    if (fromId === toId) { setFieldError(toField, toErr, "Source and destination cannot be the same."); return; }
 
     const fromBalance = getAccountBalance(fromId);
     if (amount > fromBalance) {
@@ -1052,13 +1319,14 @@ async function handleTransactionSubmit(event) {
     transaction = {
       id: crypto.randomUUID(), type: "transfer", amount, accountId: null,
       fromAccountId: fromId, toAccountId: toId, category: "Transfer", description, dateKey,
-      occurredAt: `${dateKey}T${new Date().toTimeString().slice(0, 8)}.000Z`,
+      occurredAt: `${dateKey}T${new Date().toISOString().slice(11, 23)}Z`,
       createdAt: now, updatedAt: now, deleted: false, syncStatus: "pending", lastSyncError: "",
     };
     lastSelectedAccountId = fromId;
   } else {
     const accountId = el.txAccount.value;
-    if (!accountId) { showMessage(el.composerMessage, "Please select an account.", true); return; }
+    if (!accountId) { setFieldError(acctGroup, acctErr, "Please select an account."); hasError = true; }
+    if (hasError) return;
 
     if (txType === "debit") {
       const currentBalance = getAccountBalance(accountId);
@@ -1073,13 +1341,14 @@ async function handleTransactionSubmit(event) {
       fromAccountId: txType === "debit" ? accountId : null,
       toAccountId: txType === "credit" ? accountId : null,
       category: txType === "transfer" ? "Transfer" : category, description, dateKey,
-      occurredAt: `${dateKey}T${new Date().toTimeString().slice(0, 8)}.000Z`,
+      occurredAt: `${dateKey}T${new Date().toISOString().slice(11, 23)}Z`,
       createdAt: now, updatedAt: now, deleted: false, syncStatus: "pending", lastSyncError: "",
     };
     lastSelectedAccountId = accountId;
   }
 
   await putExpense(transaction);
+  logAudit("expense", transaction.id, "create", null, transaction);
 
   // Handle recurring
   if (repeat !== "none") {
@@ -1143,6 +1412,7 @@ async function handleQuickAdd() {
   };
 
   await putExpense(transaction);
+  logAudit("expense", transaction.id, "create", null, transaction);
   lastSelectedAccountId = accountId;
   el.quickAddInput.value = "";
   await refreshUI();
@@ -1292,16 +1562,23 @@ async function saveEditedTransaction() {
     const toId = editToAccount ? editToAccount.value : "";
     if (!fromId || !toId) { showMessage(editMsg, "Both accounts are required.", true); return; }
     if (fromId === toId) { showMessage(editMsg, "Source and destination cannot be the same.", true); return; }
-    updated = { ...existing, type: "transfer", amount, accountId: null, fromAccountId: fromId, toAccountId: toId, category: "Transfer", description, dateKey, occurredAt: `${dateKey}T${new Date().toTimeString().slice(0, 8)}.000Z`, updatedAt: now, syncStatus: "pending", lastSyncError: "" };
+    updated = { ...existing, type: "transfer", amount, accountId: null, fromAccountId: fromId, toAccountId: toId, category: "Transfer", description, dateKey, occurredAt: `${dateKey}T${new Date().toISOString().slice(11, 23)}Z`, updatedAt: now, syncStatus: "pending", lastSyncError: "" };
   } else {
     const accountId = editAccount ? editAccount.value : "";
     if (!accountId) { showMessage(editMsg, "Please select an account.", true); return; }
-    updated = { ...existing, type, amount, accountId, fromAccountId: type === "debit" ? accountId : null, toAccountId: type === "credit" ? accountId : null, category, description, dateKey, occurredAt: `${dateKey}T${new Date().toTimeString().slice(0, 8)}.000Z`, updatedAt: now, syncStatus: "pending", lastSyncError: "" };
+    updated = { ...existing, type, amount, accountId, fromAccountId: type === "debit" ? accountId : null, toAccountId: type === "credit" ? accountId : null, category, description, dateKey, occurredAt: `${dateKey}T${new Date().toISOString().slice(11, 23)}Z`, updatedAt: now, syncStatus: "pending", lastSyncError: "" };
   }
 
   await putExpense(updated);
+  logAudit("expense", updated.id, "update", existing, updated);
   closeModal(modal);
   await refreshUI();
+  if (activityViewAccountId) {
+    renderAccountActivity(activityViewAccountId);
+    const balance = getAccountBalance(activityViewAccountId);
+    el.accountActivityBalance.textContent = formatMoney(balance);
+    openModal(el.accountActivityModal);
+  }
   syncPendingRecords();
   showToast("Transaction updated.");
 }
@@ -1313,6 +1590,7 @@ async function deleteExpense(id) {
   if (!confirmed) return;
 
   await putExpense({ ...existing, deleted: true, updatedAt: new Date().toISOString(), syncStatus: "pending", lastSyncError: "" });
+  logAudit("expense", id, "delete", existing, null);
   await refreshUI();
   syncPendingRecords();
 }
@@ -1355,6 +1633,15 @@ function renderAccounts() {
   const active = cachedAccounts.filter((a) => !a.archived);
   const archived = cachedAccounts.filter((a) => a.archived);
 
+  // Net Worth card
+  const netWorthValue = document.querySelector("#netWorthValue");
+  const netWorthAccounts = document.querySelector("#netWorthAccounts");
+  if (netWorthValue) {
+    const totalBalance = active.reduce((sum, a) => sum + getAccountBalance(a.id), 0);
+    netWorthValue.textContent = formatMoney(totalBalance);
+    if (netWorthAccounts) netWorthAccounts.textContent = `across ${active.length} account${active.length !== 1 ? "s" : ""}`;
+  }
+
   if (!cachedAccounts.length) {
     el.accountsList.innerHTML = '<p class="empty-state">No accounts yet. Add an account to track balances.</p>';
     return;
@@ -1391,8 +1678,27 @@ function renderAdjustmentsSummary() {
 }
 
 // ── Modal Helpers ───────────────────────────────────────────────────────────
-function openModal(modalEl) { modalEl.classList.remove("hidden"); document.body.classList.add("modal-open"); }
-function closeModal(modalEl) { modalEl.classList.add("hidden"); document.body.classList.remove("modal-open"); }
+function openModal(modalEl) { modalEl.classList.remove("hidden"); document.body.classList.add("modal-open"); trapFocus(modalEl); }
+
+function trapFocus(modal) {
+  const focusable = modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  first.focus();
+
+  modal._trapHandler = (e) => {
+    if (e.key !== "Tab") return;
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  };
+  modal.addEventListener("keydown", modal._trapHandler);
+}
+
+function closeModal(modalEl) { if (modalEl._trapHandler) { modalEl.removeEventListener("keydown", modalEl._trapHandler); modalEl._trapHandler = null; } modalEl.classList.add("hidden"); document.body.classList.remove("modal-open"); }
 
 // ── Account Modal ───────────────────────────────────────────────────────────
 function openAddAccountModal() {
@@ -1430,7 +1736,11 @@ function openEditAccountModal(accountId) {
 
 async function saveAccount() {
   const name = el.accountNameInput.value.trim();
-  if (!name) { showMessage(el.accountModalMessage, "Account name is required.", true); return; }
+  const nameField = el.accountNameInput.closest(".form-field");
+  const nameErr = document.getElementById("accountNameError");
+  clearFieldError(nameField, nameErr);
+  showMessage(el.accountModalMessage, "");
+  if (!name) { setFieldError(nameField, nameErr, "Account name is required."); return; }
 
   const now = new Date().toISOString();
   const oldAccount = editingAccountId ? cachedAccounts.find((a) => a.id === editingAccountId) : null;
@@ -1449,6 +1759,7 @@ async function saveAccount() {
   };
 
   await putAccount(account);
+  logAudit("account", account.id, editingAccountId ? "update" : "create", oldAccount, account);
   closeModal(el.accountModal);
   await refreshUI();
   syncPendingRecords();
@@ -1528,6 +1839,7 @@ async function saveBalanceAdjustment() {
   };
 
   await putExpense(adjustment);
+  logAudit("expense", adjustment.id, editingAdjustmentId ? "update" : "create", null, adjustment);
   closeModal(el.editBalanceModal);
   await refreshUI();
   syncPendingRecords();
@@ -1652,7 +1964,7 @@ function renderAccountActivity(accountId) {
     const typeLabel = isDebit ? "DEBIT" : "CREDIT";
 
     html += `
-      <div class="chat-bubble ${bubbleClass}" data-id="${escapeHtml(item.id)}">
+      <div class="chat-bubble ${bubbleClass}" data-id="${escapeHtml(item.id)}" data-searchtext="${escapeHtml((item.description || "").toLowerCase() + " " + (item.category || "").toLowerCase() + " " + item.amount)}">
         <span class="chat-bubble__amount">${sign}${escapeHtml(formatMoney(item.amount))}</span>
         <span class="chat-bubble__desc">${escapeHtml(item.description || item.category || "")}</span>
         <div class="chat-bubble__meta">
@@ -1685,68 +1997,181 @@ function updateChatTypeIndicator() {
   });
 }
 
+
 async function handleChatSend() {
   const chatInput = document.querySelector("#chatInput");
   if (!chatInput) return;
-  const text = chatInput.value.trim();
-  if (!text) return;
+  const rawValue = chatInput.value.trim();
+  if (!rawValue) return;
 
   const accountId = activityViewAccountId;
   if (!accountId) return;
 
-  const parsed = parseExpense(text);
-  if (!parsed.valid) { showToast(parsed.error || "Could not parse. Try: Lunch 150"); return; }
+  // Multi-line support: split by newlines, parse each line
+  const lines = rawValue.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const transactions = [];
+  const errors = [];
 
-  // Determine type: if user forced a type via chip, use that; otherwise use parser result
-  let txType;
-  if (chatForceType) {
-    txType = chatForceType;
-  } else {
-    txType = parsed.type === "income" ? "credit" : "debit";
+  for (const line of lines) {
+    const parsed = parseExpense(line);
+    if (!parsed.valid) { errors.push(line); continue; }
+
+    let txType;
+    if (chatForceType) {
+      txType = chatForceType;
+    } else {
+      txType = parsed.type === "income" ? "credit" : "debit";
+    }
+
+    const now = new Date().toISOString();
+    transactions.push({
+      id: crypto.randomUUID(),
+      type: txType,
+      amount: parsed.amount,
+      accountId,
+      fromAccountId: txType === "debit" ? accountId : null,
+      toAccountId: txType === "credit" ? accountId : null,
+      category: parsed.category,
+      description: parsed.description,
+      dateKey: parsed.dateKey,
+      occurredAt: parsed.occurredAt,
+      createdAt: now,
+      updatedAt: now,
+      deleted: false,
+      syncStatus: "pending",
+      lastSyncError: "",
+    });
+  }
+
+  if (transactions.length === 0) {
+    showToast(errors.length ? `Could not parse: "${errors[0]}"` : "Could not parse. Try: Lunch 150");
+    return;
   }
 
   // Check balance for debits
-  if (txType === "debit") {
+  const totalDebit = transactions.filter((t) => t.type === "debit").reduce((s, t) => s + t.amount, 0);
+  if (totalDebit > 0) {
     const currentBalance = getAccountBalance(accountId);
-    if (parsed.amount > currentBalance) {
-      const ok = await showConfirm("Insufficient Balance", `Current: ${formatMoney(currentBalance)}. After: ${formatMoney(currentBalance - parsed.amount)}. Continue?`);
+    if (totalDebit > currentBalance) {
+      const ok = await showConfirm("Insufficient Balance", `Total debit: ${formatMoney(totalDebit)}. Current: ${formatMoney(currentBalance)}. Continue?`);
       if (!ok) return;
     }
   }
 
-  const now = new Date().toISOString();
-  const transaction = {
-    id: crypto.randomUUID(),
-    type: txType,
-    amount: parsed.amount,
-    accountId,
-    fromAccountId: txType === "debit" ? accountId : null,
-    toAccountId: txType === "credit" ? accountId : null,
-    category: parsed.category,
-    description: parsed.description,
-    dateKey: parsed.dateKey,
-    occurredAt: parsed.occurredAt,
-    createdAt: now,
-    updatedAt: now,
-    deleted: false,
-    syncStatus: "pending",
-    lastSyncError: "",
-  };
+  // Save all transactions
+  for (const tx of transactions) {
+    await putExpense(tx);
+    logAudit("expense", tx.id, "create", null, tx);
+  }
 
-  await putExpense(transaction);
   chatInput.value = "";
+  chatInput.style.height = "auto";
   chatForceType = null;
   updateChatTypeIndicator();
+  hideChatPreview();
 
   await refreshUI();
   renderAccountActivity(accountId);
 
-  // Update balance in header
   const balance = getAccountBalance(accountId);
   el.accountActivityBalance.textContent = formatMoney(balance);
 
-  showToast(`${txType === "credit" ? "Credit" : "Debit"}: ${formatMoney(parsed.amount)}`);
+  // Haptic feedback
+  if (navigator.vibrate) navigator.vibrate(10);
+
+  // Undo toast
+  const totalAmount = transactions.reduce((s, t) => s + t.amount, 0);
+  const msg = transactions.length > 1
+    ? `${transactions.length} entries added • Total: ${formatMoney(totalAmount)}`
+    : `${transactions[0].type === "credit" ? "Credit" : "Debit"}: ${formatMoney(transactions[0].amount)}`;
+  showUndoToast(msg, transactions);
+
+  if (errors.length) {
+    setTimeout(() => showToast(`${errors.length} line(s) could not be parsed`), 500);
+  }
+
+  trackEvent("transaction_added", { count: transactions.length, totalAmount, method: "chat" });
   syncPendingRecords();
+}
+
+function showUndoToast(message, transactions) {
+  const toast = el.toast;
+  if (!toast) { showToast(message); return; }
+
+  if (undoTimeout) clearTimeout(undoTimeout);
+  clearTimeout(showToast.timer);
+  undoTransactions = transactions;
+
+  toast.className = "toast toast--undo";
+  toast.classList.remove("hidden");
+  toast.innerHTML = `
+    <span>${escapeHtml(message)}</span>
+    <button type="button" class="toast__undo-btn" id="undoBtn">UNDO</button>
+    <div class="toast__undo-timer"><div class="toast__undo-timer-fill"></div></div>
+  `;
+
+  const undoBtn = toast.querySelector("#undoBtn");
+  if (undoBtn) {
+    undoBtn.addEventListener("click", async () => {
+      clearTimeout(undoTimeout);
+      for (const tx of undoTransactions) {
+        await putExpense({ ...tx, deleted: true, updatedAt: new Date().toISOString(), syncStatus: "pending" });
+        logAudit("expense", tx.id, "delete", tx, null);
+      }
+      undoTransactions = [];
+      toast.classList.add("hidden");
+      await refreshUI();
+      if (activityViewAccountId) {
+        renderAccountActivity(activityViewAccountId);
+        const bal = getAccountBalance(activityViewAccountId);
+        el.accountActivityBalance.textContent = formatMoney(bal);
+      }
+      showToast("Undone!");
+    }, { once: true });
+  }
+
+  undoTimeout = setTimeout(() => {
+    undoTransactions = [];
+    toast.classList.add("hidden");
+    toast.innerHTML = "";
+  }, 4000);
+}
+
+function hideChatPreview() {
+  const preview = document.querySelector("#chatParsePreview");
+  if (preview) { preview.classList.add("hidden"); preview.innerHTML = ""; }
+}
+
+function updateChatParsePreview(value) {
+  const preview = document.querySelector("#chatParsePreview");
+  if (!preview) return;
+
+  const rawValue = value.trim();
+  if (!rawValue) { preview.classList.add("hidden"); preview.innerHTML = ""; return; }
+
+  const lines = rawValue.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const results = lines.map((line) => parseExpense(line)).filter((r) => r.valid);
+
+  if (results.length === 0) { preview.classList.add("hidden"); preview.innerHTML = ""; return; }
+
+  preview.classList.remove("hidden");
+
+  if (results.length === 1) {
+    const r = results[0];
+    const txType = chatForceType || (r.type === "income" ? "credit" : "debit");
+    const amountClass = txType === "credit" ? "chat-parse-preview__amount--credit" : "";
+    preview.innerHTML = `
+      <span class="chat-parse-preview__item chat-parse-preview__amount ${amountClass}">${txType === "credit" ? "+" : "-"}${escapeHtml(formatMoney(r.amount))}</span>
+      <span class="chat-parse-preview__item chat-parse-preview__category">${escapeHtml(r.category)}</span>
+      <span class="chat-parse-preview__item">${txType.toUpperCase()}</span>
+    `;
+  } else {
+    const total = results.reduce((s, r) => s + r.amount, 0);
+    preview.innerHTML = `
+      <span class="chat-parse-preview__item chat-parse-preview__count">${results.length} entries</span>
+      <span class="chat-parse-preview__item chat-parse-preview__amount">Total: ${escapeHtml(formatMoney(total))}</span>
+    `;
+  }
 }
 
 // ── Budget Modal ────────────────────────────────────────────────────────────
@@ -1762,7 +2187,11 @@ function openBudgetModal() {
 async function saveBudget() {
   const category = el.budgetCategory.value;
   const amount = Number(el.budgetAmount.value);
-  if (!amount || amount <= 0) { showMessage(el.budgetModalMessage, "Enter a valid budget amount.", true); return; }
+  const amountField = el.budgetAmount.closest(".form-field");
+  const amountErr = document.getElementById("budgetAmountError");
+  clearFieldError(amountField, amountErr);
+  showMessage(el.budgetModalMessage, "");
+  if (!amount || amount <= 0) { setFieldError(amountField, amountErr, "Enter a valid budget amount."); return; }
 
   const existing = cachedBudgets.find((b) => b.category === category);
   const budget = {
@@ -1775,6 +2204,7 @@ async function saveBudget() {
   };
 
   await putBudget(budget);
+  logAudit("budget", budget.id, existing ? "update" : "create", existing, budget);
   closeModal(el.budgetModal);
   await refreshUI();
   showToast(`Budget set: ${formatMoney(amount)}/month for ${category}.`);
@@ -1783,7 +2213,9 @@ async function saveBudget() {
 async function handleDeleteBudget(budgetId) {
   const confirmed = await showConfirm("Remove Budget", "Remove this budget limit?");
   if (!confirmed) return;
+  const existing = cachedBudgets.find((b) => b.id === budgetId);
   await deleteBudget(budgetId);
+  logAudit("budget", budgetId, "delete", existing, null);
   await refreshUI();
   showToast("Budget removed.");
 }
@@ -1824,6 +2256,23 @@ function exportJson() {
   downloadFile(`expenses-backup-${localDateKey()}.json`, JSON.stringify(backup, null, 2), "application/json");
 }
 
+function validateTransaction(item) {
+  if (!item || typeof item !== "object") return false;
+  if (typeof item.amount !== "number" && typeof item.amount !== "string") return false;
+  const amt = Number(item.amount);
+  if (isNaN(amt) || amt < 0 || amt > 100000000) return false;
+  if (!item.type || !["debit", "credit", "transfer", "adjustment", "income", "expense"].includes(String(item.type))) return false;
+  if (!item.dateKey || !/^\d{4}-\d{2}-\d{2}/.test(String(item.dateKey))) return false;
+  return true;
+}
+
+function validateAccount(item) {
+  if (!item || typeof item !== "object") return false;
+  if (!item.name || typeof item.name !== "string") return false;
+  if (item.openingBalance != null && isNaN(Number(item.openingBalance))) return false;
+  return true;
+}
+
 async function importJson(file) {
   try {
     const text = await file.text();
@@ -1832,16 +2281,21 @@ async function importJson(file) {
     if (Array.isArray(data)) { transactions = data; accounts = []; }
     else { transactions = data.transactions || []; accounts = data.accounts || []; }
 
-    const now = new Date().toISOString();
-    const records = transactions.map((item) => ({ ...item, id: item.id || crypto.randomUUID(), updatedAt: item.updatedAt || now, createdAt: item.createdAt || now, syncStatus: "pending", lastSyncError: "" }));
-    await bulkPutExpenses(records);
-    for (const account of accounts) { await putAccount({ ...account, syncStatus: "pending", lastSyncError: "" }); }
+    const validTransactions = transactions.filter(validateTransaction);
+    const validAccounts = accounts.filter(validateAccount);
+    const skipped = transactions.length - validTransactions.length + accounts.length - validAccounts.length;
 
-    if (data.budgets) { for (const b of data.budgets) await putBudget(b); }
-    if (data.recurring) { for (const r of data.recurring) await putRecurring(r); }
+    const now = new Date().toISOString();
+    const records = validTransactions.map((item) => ({ ...item, id: item.id || crypto.randomUUID(), updatedAt: item.updatedAt || now, createdAt: item.createdAt || now, syncStatus: "pending", lastSyncError: "" }));
+    await bulkPutExpenses(records);
+    for (const account of validAccounts) { await putAccount({ ...account, syncStatus: "pending", lastSyncError: "" }); }
+
+    if (data.budgets && Array.isArray(data.budgets)) { for (const b of data.budgets) { if (b && b.category && b.amount) await putBudget(b); } }
+    if (data.recurring && Array.isArray(data.recurring)) { for (const r of data.recurring) { if (r && r.id) await putRecurring(r); } }
 
     await refreshUI();
-    showToast(`${records.length} records restored.`);
+    const msg = skipped > 0 ? `${records.length} records restored (${skipped} invalid skipped).` : `${records.length} records restored.`;
+    showToast(msg);
     syncPendingRecords();
   } catch (error) {
     showToast(error.message);
@@ -2056,8 +2510,54 @@ async function onboardingCreateAccount() {
   syncPendingRecords();
 }
 
+// ── Activity Log Rendering ──────────────────────────────────────────────────
+let auditLogOffset = 0;
+const AUDIT_PAGE_SIZE = 50;
+
+async function renderAuditLog(append = false) {
+  const container = document.querySelector("#auditLogContainer");
+  const loadMoreBtn = document.querySelector("#loadMoreAuditBtn");
+  if (!container) return;
+
+  if (!append) auditLogOffset = 0;
+
+  const entries = await getAuditLog(AUDIT_PAGE_SIZE, auditLogOffset);
+  const totalCount = await getAuditLogCount();
+
+  if (!entries.length && !append) {
+    container.innerHTML = '<p class="empty-state" style="padding:0.75rem;margin:0;font-size:0.8rem;">No activity recorded yet.</p>';
+    if (loadMoreBtn) loadMoreBtn.classList.add("hidden");
+    return;
+  }
+
+  const actionIcons = { create: "+", update: "~", delete: "×" };
+
+  const html = entries.map((entry) => `
+    <div class="audit-log__item">
+      <div class="audit-log__icon audit-log__icon--${escapeHtml(entry.action)}">
+        ${actionIcons[entry.action] || "?"}
+      </div>
+      <div class="audit-log__body">
+        <div class="audit-log__text">${escapeHtml(formatAuditEntry(entry))}</div>
+        <div class="audit-log__time">${escapeHtml(relativeTime(entry.timestamp))}</div>
+      </div>
+    </div>
+  `).join("");
+
+  if (append) {
+    container.insertAdjacentHTML("beforeend", html);
+  } else {
+    container.innerHTML = html;
+  }
+
+  auditLogOffset += entries.length;
+  if (loadMoreBtn) {
+    loadMoreBtn.classList.toggle("hidden", auditLogOffset >= totalCount);
+  }
+}
+
 // ── Settings Panel ──────────────────────────────────────────────────────────
-function openSettings() { el.settingsPanel.classList.remove("hidden"); el.settingsPanel.classList.add("open"); }
+function openSettings() { el.settingsPanel.classList.remove("hidden"); el.settingsPanel.classList.add("open"); renderAuditLog(); }
 function closeSettings() { el.settingsPanel.classList.remove("open"); setTimeout(() => el.settingsPanel.classList.add("hidden"), 300); }
 
 // ── Filter Sheet (mobile) ───────────────────────────────────────────────────
@@ -2091,6 +2591,24 @@ function applyMobileFilters() {
 window.addEventListener("beforeinstallprompt", (event) => { event.preventDefault(); installPrompt = event; el.installBtn.classList.remove("hidden"); });
 window.addEventListener("appinstalled", () => { installPrompt = null; showToast("App installed."); });
 
+// Re-lock on visibility change with grace period (user switches away and comes back)
+let lastUnlockTime = 0;
+let appLockEnabledCache = false;
+const LOCK_GRACE_PERIOD_MS = 30000;
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") return;
+  if (!currentUser) return;
+  if (!appLockEnabledCache) return;
+  const elapsed = Date.now() - lastUnlockTime;
+  if (elapsed < LOCK_GRACE_PERIOD_MS) return;
+  const ls = document.querySelector("#lockScreen");
+  if (ls && ls.classList.contains("hidden")) {
+    ls.classList.remove("hidden");
+    attemptUnlock();
+  }
+});
+
 // Network
 window.addEventListener("online", () => { setNetworkBadge(); showToast("Online. Syncing..."); syncPendingRecords(); });
 window.addEventListener("offline", () => { setNetworkBadge(); showToast("Offline. Data saved locally."); });
@@ -2121,9 +2639,103 @@ el.darkModeToggle.addEventListener("click", toggleDarkMode);
 const darkModeSetting = document.querySelector("#darkModeSettingToggle");
 if (darkModeSetting) darkModeSetting.addEventListener("change", toggleDarkMode);
 
+// App Lock
+const appLockToggle = document.querySelector("#appLockToggle");
+if (appLockToggle) {
+  isAppLockEnabled().then((enabled) => { appLockToggle.checked = enabled; appLockEnabledCache = enabled; });
+  isWebAuthnAvailable().then((available) => {
+    if (!available) {
+      appLockToggle.disabled = true;
+      const desc = appLockToggle.closest(".settings-item")?.querySelector(".settings-item__desc");
+      if (desc) desc.textContent = "Biometrics not available on this device";
+    }
+  });
+  appLockToggle.addEventListener("change", async () => {
+    try {
+      if (appLockToggle.checked) {
+        await enableAppLock();
+        appLockEnabledCache = true;
+        showToast("App lock enabled. You'll need biometrics to open the app.");
+      } else {
+        const verified = await verifyWithBiometrics();
+        if (!verified) { appLockToggle.checked = true; return; }
+        await disableAppLock();
+        appLockEnabledCache = false;
+        showToast("App lock disabled.");
+      }
+    } catch (err) {
+      appLockToggle.checked = !appLockToggle.checked;
+      showToast(err.message || "Failed to set up app lock.");
+    }
+  });
+}
+
+// Lock screen unlock button
+const unlockBtn = document.querySelector("#unlockBtn");
+const lockScreen = document.querySelector("#lockScreen");
+const lockMessage = document.querySelector("#lockMessage");
+const lockSignOutBtn = document.querySelector("#lockSignOutBtn");
+let biometricFailCount = 0;
+
+async function attemptUnlock() {
+  if (lockMessage) lockMessage.textContent = "";
+  try {
+    const success = await verifyWithBiometrics();
+    if (success) {
+      lockScreen.classList.add("hidden");
+      lastUnlockTime = Date.now();
+      biometricFailCount = 0;
+      if (lockSignOutBtn) lockSignOutBtn.classList.add("hidden");
+    }
+  } catch (err) {
+    biometricFailCount++;
+    if (biometricFailCount >= 3 && lockSignOutBtn) {
+      lockSignOutBtn.classList.remove("hidden");
+    }
+    if (lockMessage) {
+      if (biometricFailCount >= 3) {
+        lockMessage.textContent = "Multiple failures. Sign out to regain access.";
+      } else {
+        lockMessage.textContent = err.name === "NotAllowedError"
+          ? "Authentication cancelled. Tap to try again."
+          : "Authentication failed. Tap to try again.";
+      }
+    }
+  }
+}
+
+if (unlockBtn) unlockBtn.addEventListener("click", attemptUnlock);
+if (lockSignOutBtn) lockSignOutBtn.addEventListener("click", async () => {
+  const confirmed = await showConfirm("Sign Out", "This will sign you out. You'll need your email and password to sign back in.");
+  if (confirmed) {
+    lockScreen.classList.add("hidden");
+    await disableAppLock();
+    appLockEnabledCache = false;
+    signOut(auth);
+  }
+});
+
 // Tab navigation
 for (const tab of tabs) {
   tab.btn.addEventListener("click", () => switchTab(tab.key));
+}
+
+// Arrow key navigation for tabs (WAI-ARIA pattern)
+const tabList = document.querySelector('[role="tablist"]');
+if (tabList) {
+  tabList.addEventListener("keydown", (e) => {
+    const tabBtns = tabs.map((t) => t.btn);
+    const idx = tabBtns.indexOf(e.target);
+    if (idx === -1) return;
+    let next = -1;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % tabBtns.length;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + tabBtns.length) % tabBtns.length;
+    if (next >= 0) {
+      e.preventDefault();
+      tabBtns[next].focus();
+      switchTab(tabs[next].key);
+    }
+  });
 }
 
 // FAB
@@ -2132,6 +2744,10 @@ if (el.fabBtn) el.fabBtn.addEventListener("click", () => switchTab("add"));
 // Settings
 el.settingsBtn.addEventListener("click", openSettings);
 document.querySelectorAll('[data-action="close-settings"]').forEach((btn) => btn.addEventListener("click", closeSettings));
+
+// Audit log "Load more" button
+const loadMoreAuditBtn = document.querySelector("#loadMoreAuditBtn");
+if (loadMoreAuditBtn) loadMoreAuditBtn.addEventListener("click", () => renderAuditLog(true));
 
 // Default account setting
 const defaultAccountSelect = document.querySelector("#defaultAccountSelect");
@@ -2156,6 +2772,27 @@ if (saveNameBtn && displayNameInput) {
 
 // Transaction form
 if (el.transactionForm) el.transactionForm.addEventListener("submit", handleTransactionSubmit);
+if (el.txAmount) el.txAmount.addEventListener("input", () => {
+  if (Number(el.txAmount.value) > 0) clearFieldError(document.getElementById("txAmountGroup"), document.getElementById("txAmountError"));
+});
+if (el.txDescription) el.txDescription.addEventListener("input", () => {
+  if (el.txDescription.value.trim()) clearFieldError(document.getElementById("txDescriptionField"), document.getElementById("txDescriptionError"));
+});
+if (el.txAccount) el.txAccount.addEventListener("change", () => {
+  if (el.txAccount.value) clearFieldError(document.getElementById("txSingleAccountGroup"), document.getElementById("txAccountError"));
+});
+if (el.txFromAccount) el.txFromAccount.addEventListener("change", () => {
+  if (el.txFromAccount.value) clearFieldError(document.getElementById("txFromAccountField"), document.getElementById("txFromAccountError"));
+});
+if (el.txToAccount) el.txToAccount.addEventListener("change", () => {
+  if (el.txToAccount.value) clearFieldError(document.getElementById("txToAccountField"), document.getElementById("txToAccountError"));
+});
+if (el.accountNameInput) el.accountNameInput.addEventListener("input", () => {
+  if (el.accountNameInput.value.trim()) clearFieldError(el.accountNameInput.closest(".form-field"), document.getElementById("accountNameError"));
+});
+if (el.budgetAmount) el.budgetAmount.addEventListener("input", () => {
+  if (Number(el.budgetAmount.value) > 0) clearFieldError(el.budgetAmount.closest(".form-field"), document.getElementById("budgetAmountError"));
+});
 if (el.txTypeDebit) el.txTypeDebit.addEventListener("click", () => setTxType("debit"));
 if (el.txTypeCredit) el.txTypeCredit.addEventListener("click", () => setTxType("credit"));
 if (el.txTypeTransfer) el.txTypeTransfer.addEventListener("click", () => setTxType("transfer"));
@@ -2195,14 +2832,149 @@ document.querySelectorAll(".quick-chip").forEach((chip) => {
   });
 });
 
+// ── Receipt Scanner ──────────────────────────────────────────────────────────
+const scanReceiptBtn = document.querySelector("#scanReceiptBtn");
+const uploadReceiptBtn = document.querySelector("#uploadReceiptBtn");
+const receiptCameraInput = document.querySelector("#receiptCameraInput");
+const receiptFileInput = document.querySelector("#receiptFileInput");
+const scanProgress = document.querySelector("#scanProgress");
+const scanResult = document.querySelector("#scanResult");
+const scanSaveBtn = document.querySelector("#scanSaveBtn");
+const scanDiscardBtn = document.querySelector("#scanDiscardBtn");
+
+if (scanReceiptBtn) scanReceiptBtn.addEventListener("click", () => receiptCameraInput.click());
+if (uploadReceiptBtn) uploadReceiptBtn.addEventListener("click", () => receiptFileInput.click());
+
+async function handleReceiptFile(file) {
+  if (!file || !file.type.startsWith("image/")) {
+    showToast("Please select a valid image file.");
+    return;
+  }
+
+  scanProgress.classList.remove("hidden");
+  scanResult.classList.add("hidden");
+  const progressFill = document.querySelector("#scanProgressFill");
+  const progressLabel = document.querySelector("#scanProgressLabel");
+  if (progressFill) progressFill.style.width = "5%";
+  if (progressLabel) progressLabel.textContent = "Loading OCR engine...";
+
+  try {
+    const receiptModule = await import("./receipt-scanner.js");
+    const result = await receiptModule.scanReceipt(file);
+
+    clearTimeout(handleReceiptFile.workerTimer);
+    handleReceiptFile.workerTimer = setTimeout(() => receiptModule.terminateWorker(), 60000);
+
+    scanProgress.classList.add("hidden");
+
+    if (!result.valid) {
+      showToast("Could not extract amount from receipt. Try entering manually.");
+      return;
+    }
+
+    // Populate result fields
+    document.querySelector("#scanAmount").value = result.amount || "";
+    document.querySelector("#scanMerchant").value = result.description || "";
+    document.querySelector("#scanCategory").value = result.category || "Other";
+    document.querySelector("#scanDate").value = result.dateKey || localDateKey();
+    document.querySelector("#scanRawText").textContent = result.rawText || "";
+
+    // Populate account dropdown
+    const scanAccountSelect = document.querySelector("#scanAccount");
+    if (scanAccountSelect) {
+      const activeAccounts = cachedAccounts.filter((a) => !a.archived);
+      scanAccountSelect.innerHTML = '<option value="">Select account</option>';
+      for (const a of activeAccounts) {
+        const opt = document.createElement("option");
+        opt.value = a.id;
+        opt.textContent = a.name;
+        scanAccountSelect.appendChild(opt);
+      }
+      if (defaultAccountId) scanAccountSelect.value = defaultAccountId;
+      else if (activeAccounts.length === 1) scanAccountSelect.value = activeAccounts[0].id;
+    }
+
+    // Confidence badge
+    const confidenceBadge = document.querySelector("#scanConfidence");
+    if (confidenceBadge) {
+      if (result.confidence >= 70) {
+        confidenceBadge.textContent = "High confidence";
+        confidenceBadge.classList.remove("low");
+      } else {
+        confidenceBadge.textContent = "Please verify";
+        confidenceBadge.classList.add("low");
+      }
+    }
+
+    scanResult.classList.remove("hidden");
+  } catch (err) {
+    scanProgress.classList.add("hidden");
+    showToast("Receipt scan failed: " + (err.message || "Unknown error"));
+  }
+}
+
+if (receiptCameraInput) receiptCameraInput.addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (file) handleReceiptFile(file);
+  receiptCameraInput.value = "";
+});
+
+if (receiptFileInput) receiptFileInput.addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (file) handleReceiptFile(file);
+  receiptFileInput.value = "";
+});
+
+if (scanSaveBtn) scanSaveBtn.addEventListener("click", async () => {
+  const amount = Number(document.querySelector("#scanAmount").value);
+  const description = document.querySelector("#scanMerchant").value.trim();
+  const category = document.querySelector("#scanCategory").value;
+  const dateKey = document.querySelector("#scanDate").value || localDateKey();
+  const accountId = document.querySelector("#scanAccount").value;
+
+  if (!amount || amount <= 0) { showToast("Please enter a valid amount."); return; }
+  if (!accountId) { showToast("Please select an account."); return; }
+
+  const now = new Date().toISOString();
+  const transaction = {
+    id: crypto.randomUUID(),
+    type: "debit",
+    amount,
+    accountId,
+    fromAccountId: accountId,
+    toAccountId: null,
+    category: category || "Other",
+    description: description || "Receipt scan",
+    dateKey,
+    occurredAt: `${dateKey}T${new Date().toISOString().slice(11, 23)}Z`,
+    createdAt: now,
+    updatedAt: now,
+    deleted: false,
+    syncStatus: "pending",
+    lastSyncError: "",
+  };
+
+  await putExpense(transaction);
+  logAudit("expense", transaction.id, "create", null, transaction);
+  scanResult.classList.add("hidden");
+  await refreshUI();
+  showToast(`Saved: ${formatMoney(amount)} — ${description || category}`);
+  syncPendingRecords();
+});
+
+if (scanDiscardBtn) scanDiscardBtn.addEventListener("click", () => {
+  scanResult.classList.add("hidden");
+});
+
 // History filters
-if (el.searchInput) el.searchInput.addEventListener("input", renderHistory);
-if (el.typeFilter) el.typeFilter.addEventListener("change", renderHistory);
-if (el.accountFilter) el.accountFilter.addEventListener("change", renderHistory);
-if (el.dateRangeStart) el.dateRangeStart.addEventListener("change", renderHistory);
-if (el.dateRangeEnd) el.dateRangeEnd.addEventListener("change", renderHistory);
-if (el.amountMin) el.amountMin.addEventListener("change", renderHistory);
-if (el.amountMax) el.amountMax.addEventListener("change", renderHistory);
+function resetAndRenderHistory() { historyDisplayCount = historyPageSize; renderHistory(); }
+if (el.searchInput) el.searchInput.addEventListener("input", debounce(resetAndRenderHistory, 250));
+if (el.typeFilter) el.typeFilter.addEventListener("change", resetAndRenderHistory);
+if (el.accountFilter) el.accountFilter.addEventListener("change", resetAndRenderHistory);
+if (el.dateRangeStart) el.dateRangeStart.addEventListener("change", resetAndRenderHistory);
+if (el.dateRangeEnd) el.dateRangeEnd.addEventListener("change", resetAndRenderHistory);
+if (el.amountMin) el.amountMin.addEventListener("change", resetAndRenderHistory);
+if (el.amountMax) el.amountMax.addEventListener("change", resetAndRenderHistory);
 
 // Filter sheet (mobile)
 if (el.filterSheetBtn) el.filterSheetBtn.addEventListener("click", openFilterSheet);
@@ -2217,7 +2989,7 @@ document.querySelectorAll('[data-action="clear-filters"]').forEach((btn) => btn.
   if (el.dateRangeEnd) el.dateRangeEnd.value = "";
   if (el.amountMin) el.amountMin.value = "";
   if (el.amountMax) el.amountMax.value = "";
-  renderHistory();
+  resetAndRenderHistory();
   closeFilterSheet();
 }));
 
@@ -2230,8 +3002,10 @@ if (el.exportJsonBtn) el.exportJsonBtn.addEventListener("click", exportJson);
 if (el.syncNowBtn) el.syncNowBtn.addEventListener("click", async () => { await syncPendingRecords(); showToast(navigator.onLine ? "Sync completed." : "Still offline."); });
 if (el.importJsonInput) el.importJsonInput.addEventListener("change", (event) => { const [file] = event.target.files; if (file) importJson(file); });
 
-// History item actions (edit/delete)
+// History item actions (edit/delete + load more)
 if (el.historyList) el.historyList.addEventListener("click", (event) => {
+  const loadMore = event.target.closest("#historyLoadMoreBtn");
+  if (loadMore) { historyDisplayCount += historyPageSize; renderHistory(); return; }
   const button = event.target.closest("button[data-action]");
   if (!button) return;
   const item = button.closest(".history-item");
@@ -2251,6 +3025,41 @@ if (el.recentTransactions) el.recentTransactions.addEventListener("click", (even
   if (button.dataset.action === "edit") editExpense(id);
   if (button.dataset.action === "delete") deleteExpense(id);
 });
+
+// Recurring transactions actions
+const recurringList = document.querySelector("#recurringList");
+if (recurringList) {
+  recurringList.addEventListener("click", async (event) => {
+    const btn = event.target.closest("button[data-action]");
+    if (!btn) return;
+    const item = btn.closest(".recurring-item");
+    const id = item?.dataset.recurringId;
+    if (!id) return;
+    const action = btn.dataset.action;
+
+    const recurring = cachedRecurring.find((r) => r.id === id);
+    if (!recurring) return;
+
+    if (action === "pause-recurring") {
+      recurring.paused = true;
+      await putRecurring(recurring);
+      showToast("Recurring paused.");
+    } else if (action === "resume-recurring") {
+      recurring.paused = false;
+      await putRecurring(recurring);
+      showToast("Recurring resumed.");
+    } else if (action === "delete-recurring") {
+      const ok = await showConfirm("Delete Recurring", `Delete "${recurring.description || recurring.category}" recurring transaction?`);
+      if (!ok) return;
+      recurring.deleted = true;
+      await putRecurring(recurring);
+      showToast("Recurring deleted.");
+    }
+
+    cachedRecurring = await getAllRecurring();
+    renderRecurring();
+  });
+}
 
 // Account actions
 if (el.accountsList) el.accountsList.addEventListener("click", (event) => {
@@ -2278,7 +3087,17 @@ el.activityEditBalanceBtn.addEventListener("click", () => { closeModal(el.accoun
 const chatSendBtn = document.querySelector("#chatSendBtn");
 const chatInput = document.querySelector("#chatInput");
 if (chatSendBtn) chatSendBtn.addEventListener("click", handleChatSend);
-if (chatInput) chatInput.addEventListener("keydown", (e) => { if (e.key === "Enter") handleChatSend(); });
+if (chatInput) {
+  chatInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleChatSend(); }
+  });
+  // Auto-resize textarea
+  chatInput.addEventListener("input", () => {
+    chatInput.style.height = "auto";
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
+    updateChatParsePreview(chatInput.value);
+  });
+}
 
 // Chat type chips (Spent / Received)
 document.querySelectorAll(".chat-chip").forEach((chip) => {
@@ -2291,6 +3110,107 @@ document.querySelectorAll(".chat-chip").forEach((chip) => {
     if (input) input.focus();
   });
 });
+
+// Chat bubble click → show Edit/Delete actions
+const accountActivityList = document.querySelector("#accountActivityList");
+if (accountActivityList) {
+  accountActivityList.addEventListener("click", (event) => {
+    const actionBtn = event.target.closest(".chat-bubble-action-btn");
+    if (actionBtn) {
+      const bubble = actionBtn.closest(".chat-bubble");
+      const id = bubble?.dataset.id;
+      if (!id) return;
+      if (actionBtn.dataset.action === "edit") {
+        editExpense(id);
+      } else if (actionBtn.dataset.action === "delete") {
+        deleteExpense(id).then(() => {
+          renderAccountActivity(activityViewAccountId);
+          const balance = getAccountBalance(activityViewAccountId);
+          el.accountActivityBalance.textContent = formatMoney(balance);
+        });
+      }
+      return;
+    }
+
+    const bubble = event.target.closest(".chat-bubble[data-id]");
+    if (!bubble) return;
+
+    // Remove actions from all other bubbles
+    accountActivityList.querySelectorAll(".chat-bubble-actions").forEach((el) => el.remove());
+    accountActivityList.querySelectorAll(".chat-bubble--active").forEach((el) => el.classList.remove("chat-bubble--active"));
+
+    // Add action buttons to this bubble
+    bubble.classList.add("chat-bubble--active");
+    const actions = document.createElement("div");
+    actions.className = "chat-bubble-actions";
+    actions.innerHTML = `
+      <button type="button" class="chat-bubble-action-btn chat-bubble-action-btn--edit" data-action="edit">Edit</button>
+      <button type="button" class="chat-bubble-action-btn chat-bubble-action-btn--delete" data-action="delete">Delete</button>
+    `;
+    bubble.appendChild(actions);
+  });
+}
+
+// Chat Search
+const chatSearchToggleBtn = document.querySelector("#chatSearchToggleBtn");
+const chatSearchBar = document.querySelector("#chatSearchBar");
+const chatSearchInput = document.querySelector("#chatSearchInput");
+const chatSearchCloseBtn = document.querySelector("#chatSearchCloseBtn");
+
+if (chatSearchToggleBtn) {
+  chatSearchToggleBtn.addEventListener("click", () => {
+    if (chatSearchBar) {
+      chatSearchBar.classList.toggle("hidden");
+      if (!chatSearchBar.classList.contains("hidden")) {
+        chatSearchInput.value = "";
+        chatSearchInput.focus();
+        filterChatBubbles("");
+      } else {
+        filterChatBubbles("");
+      }
+    }
+  });
+}
+
+if (chatSearchCloseBtn) {
+  chatSearchCloseBtn.addEventListener("click", () => {
+    if (chatSearchBar) chatSearchBar.classList.add("hidden");
+    if (chatSearchInput) chatSearchInput.value = "";
+    filterChatBubbles("");
+  });
+}
+
+if (chatSearchInput) {
+  chatSearchInput.addEventListener("input", debounce(() => {
+    filterChatBubbles(chatSearchInput.value.trim().toLowerCase());
+  }, 250));
+}
+
+function filterChatBubbles(query) {
+  const list = document.querySelector("#accountActivityList");
+  if (!list) return;
+  const bubbles = list.querySelectorAll(".chat-bubble[data-searchtext]");
+  const dividers = list.querySelectorAll(".chat-date-divider");
+
+  if (!query) {
+    bubbles.forEach((b) => { b.classList.remove("chat-bubble--hidden", "chat-bubble--highlight"); });
+    dividers.forEach((d) => { d.classList.remove("hidden"); });
+    return;
+  }
+
+  bubbles.forEach((b) => {
+    const text = b.dataset.searchtext || "";
+    if (text.includes(query)) {
+      b.classList.remove("chat-bubble--hidden");
+      b.classList.add("chat-bubble--highlight");
+    } else {
+      b.classList.add("chat-bubble--hidden");
+      b.classList.remove("chat-bubble--highlight");
+    }
+  });
+
+  dividers.forEach((d) => { d.classList.add("hidden"); });
+}
 
 // Edit transaction modal
 const editTxSaveBtn = document.querySelector("#saveEditTxBtn");
@@ -2331,14 +3251,31 @@ document.addEventListener("keydown", (event) => {
 });
 
 // ── Initialization ──────────────────────────────────────────────────────────
+async function checkStorageQuota() {
+  if (navigator.storage && navigator.storage.estimate) {
+    try {
+      const { usage, quota } = await navigator.storage.estimate();
+      if (quota && usage / quota > 0.85) {
+        showToast("Storage almost full. Consider exporting and clearing old data.");
+      }
+    } catch {}
+  }
+}
+
 async function initialize() {
   await initDarkMode();
   await loadDefaultAccount();
   await loadUserName();
+  pruneOldAuditEntries();
+  checkStorageQuota();
   setNetworkBadge();
   if (el.txDate) el.txDate.value = localDateKey();
   await restoreLastTab();
   await refreshUI();
+
+  // Remove splash screen
+  const splash = document.querySelector("#splashScreen");
+  if (splash) splash.classList.add("hidden");
 
   if (!isFirebaseConfigured) {
     el.setupBanner.classList.remove("hidden");
@@ -2355,6 +3292,18 @@ async function initialize() {
       el.authScreen.classList.add("hidden");
       el.appScreen.classList.remove("hidden");
       showMessage(el.authMessage, "");
+
+      // Show lock screen if app lock is enabled
+      const lockEnabled = await isAppLockEnabled();
+      appLockEnabledCache = lockEnabled;
+      if (lockEnabled) {
+        const ls = document.querySelector("#lockScreen");
+        if (ls) {
+          ls.classList.remove("hidden");
+          attemptUnlock();
+        }
+      }
+
       startCloudListener(user);
       await processRecurringTransactions();
       await migrateExistingData();

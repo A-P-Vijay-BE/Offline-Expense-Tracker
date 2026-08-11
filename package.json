@@ -9,11 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "firebase": "latest",
-    "idb": "latest"
+    "firebase": "^12.17.1",
+    "idb": "^8.0.3",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
-    "vite": "latest",
-    "vite-plugin-pwa": "latest"
+    "vite": "^8.2.1",
+    "vite-plugin-pwa": "^1.3.0"
   }
 }

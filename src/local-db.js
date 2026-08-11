@@ -1,14 +1,14 @@
 import { openDB } from "idb";
 
 const DATABASE_NAME = "my-expense-tracker";
-const DATABASE_VERSION = 5;
+const DATABASE_VERSION = 6;
 const STORE_NAME = "expenses";
 const ACCOUNTS_STORE = "accounts";
 const BUDGETS_STORE = "budgets";
 const RECURRING_STORE = "recurring";
 const SETTINGS_STORE = "settings";
 
-const dbPromise = openDB(DATABASE_NAME, DATABASE_VERSION, {
+export const dbPromise = openDB(DATABASE_NAME, DATABASE_VERSION, {
   upgrade(db, oldVersion, _newVersion, transaction) {
     if (oldVersion < 1) {
       const store = db.createObjectStore(STORE_NAME, { keyPath: "id" });
@@ -61,6 +61,13 @@ const dbPromise = openDB(DATABASE_NAME, DATABASE_VERSION, {
     if (oldVersion < 5) {
       if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
         db.createObjectStore(SETTINGS_STORE, { keyPath: "key" });
+      }
+    }
+    if (oldVersion < 6) {
+      if (!db.objectStoreNames.contains("auditLog")) {
+        const auditStore = db.createObjectStore("auditLog", { keyPath: "id" });
+        auditStore.createIndex("by-entity", ["entityType", "entityId"]);
+        auditStore.createIndex("by-timestamp", "timestamp");
       }
     }
   },
