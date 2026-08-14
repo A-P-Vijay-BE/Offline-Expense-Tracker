@@ -1678,7 +1678,15 @@ function renderAdjustmentsSummary() {
 }
 
 // ── Modal Helpers ───────────────────────────────────────────────────────────
-function openModal(modalEl) { modalEl.classList.remove("hidden"); document.body.classList.add("modal-open"); trapFocus(modalEl); }
+function openModal(modalEl) {
+  modalEl.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  if (modalEl === el.accountActivityModal) {
+    document.body.classList.add("account-activity-open");
+    history.pushState({ accountActivity: true }, "");
+  }
+  trapFocus(modalEl);
+}
 
 function trapFocus(modal) {
   const focusable = modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
@@ -1698,7 +1706,17 @@ function trapFocus(modal) {
   modal.addEventListener("keydown", modal._trapHandler);
 }
 
-function closeModal(modalEl) { if (modalEl._trapHandler) { modalEl.removeEventListener("keydown", modalEl._trapHandler); modalEl._trapHandler = null; } modalEl.classList.add("hidden"); document.body.classList.remove("modal-open"); }
+let closingFromPopstate = false;
+
+function closeModal(modalEl) {
+  if (modalEl._trapHandler) { modalEl.removeEventListener("keydown", modalEl._trapHandler); modalEl._trapHandler = null; }
+  modalEl.classList.add("hidden");
+  document.body.classList.remove("modal-open");
+  if (modalEl === el.accountActivityModal) {
+    document.body.classList.remove("account-activity-open");
+    if (!closingFromPopstate) history.back();
+  }
+}
 
 // ── Account Modal ───────────────────────────────────────────────────────────
 function openAddAccountModal() {
@@ -3082,6 +3100,7 @@ el.saveOpeningBalanceBtn.addEventListener("click", saveOpeningBalance);
 el.createAdjustmentInsteadBtn.addEventListener("click", () => { const id = adjustmentTargetAccountId; closeModal(el.editOpeningBalanceModal); openEditBalanceModal(id); });
 el.activityEditDetailsBtn.addEventListener("click", () => { closeModal(el.accountActivityModal); openEditAccountModal(activityViewAccountId); });
 el.activityEditBalanceBtn.addEventListener("click", () => { closeModal(el.accountActivityModal); openEditBalanceModal(activityViewAccountId); });
+document.getElementById("chatBackBtn").addEventListener("click", () => { closeModal(el.accountActivityModal); });
 
 // Chat send button & input
 const chatSendBtn = document.querySelector("#chatSendBtn");
@@ -3244,6 +3263,15 @@ document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (el.settingsPanel.classList.contains("open")) closeSettings();
   if (el.filterSheet.classList.contains("open")) closeFilterSheet();
+});
+
+// ── Back navigation for account activity screen on mobile ───────────────────
+window.addEventListener("popstate", (event) => {
+  if (!el.accountActivityModal.classList.contains("hidden")) {
+    closingFromPopstate = true;
+    closeModal(el.accountActivityModal);
+    closingFromPopstate = false;
+  }
 });
 
 // ── Initialization ──────────────────────────────────────────────────────────
