@@ -217,6 +217,9 @@ const el = {
   // Insights
   categoryChart: document.querySelector("#categoryChart"),
   trendChart: document.querySelector("#trendChart"),
+  incomeExpenseChart: document.querySelector("#incomeExpenseChart"),
+  spendingHeatmap: document.querySelector("#spendingHeatmap"),
+  insightsKpiStrip: document.querySelector("#insightsKpiStrip"),
   // FAB
   fabBtn: document.querySelector("#fabBtn"),
   // Onboarding
@@ -557,6 +560,92 @@ function recomputeVisibleExpenses() {
     .sort((a, b) => String(b.occurredAt).localeCompare(String(a.occurredAt)));
 }
 
+// ── Insights Sub-tab Navigation ─────────────────────────────────────────────
+let activeInsightsTab = "overview";
+
+function initInsightsSubtabs() {
+  const subtabs = document.querySelectorAll(".insights-subtab");
+  const panels = document.querySelectorAll(".insights-tab-content");
+
+  subtabs.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.insightsTab;
+      if (key === activeInsightsTab) return;
+      activeInsightsTab = key;
+
+      subtabs.forEach((t) => {
+        t.classList.toggle("active", t.dataset.insightsTab === key);
+        t.setAttribute("aria-selected", String(t.dataset.insightsTab === key));
+      });
+      panels.forEach((p) => {
+        p.classList.toggle("active", p.dataset.insightsPanel === key);
+      });
+
+      renderInsightsForTab(key);
+    });
+  });
+}
+
+function renderInsightsForTab(tab) {
+  switch (tab) {
+    case "overview":
+      renderCategories();
+      renderInsights();
+      break;
+    case "daily":
+      renderDailySummary();
+      break;
+    case "trends":
+      renderTrendChart();
+      renderIncomeExpenseChart();
+      break;
+    case "analysis":
+      renderSpendingHeatmap();
+      renderSpendingAnalysis();
+      break;
+  }
+}
+
+// ── Insights KPI Strip ──────────────────────────────────────────────────────
+function renderInsightsKpi() {
+  const visible = getVisibleExpenses();
+  const month = currentMonthKey();
+
+  const monthExpense = visible
+    .filter((item) => normalizeType(item.type) === "debit" && String(item.dateKey).startsWith(month))
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+
+  const monthIncome = visible
+    .filter((item) => normalizeType(item.type) === "credit" && String(item.dateKey).startsWith(month))
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+
+  const dayOfMonth = new Date().getDate();
+  const avgDaily = dayOfMonth > 0 ? monthExpense / dayOfMonth : 0;
+
+  const prevMonthDate = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
+  const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, "0")}`;
+  const prevExpense = visible
+    .filter((item) => normalizeType(item.type) === "debit" && String(item.dateKey).startsWith(prevMonthKey))
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+
+  const change = prevExpense > 0 ? Math.round(((monthExpense - prevExpense) / prevExpense) * 100) : 0;
+  const changeLabel = change > 0 ? `+${change}%` : `${change}%`;
+  const changeClass = change > 0 ? "insights-kpi-strip__value--danger" : change < 0 ? "insights-kpi-strip__value--success" : "";
+
+  const kpiSpent = document.querySelector("#kpiMonthSpent");
+  const kpiIncome = document.querySelector("#kpiMonthIncome");
+  const kpiAvg = document.querySelector("#kpiAvgDaily");
+  const kpiMom = document.querySelector("#kpiMomChange");
+
+  if (kpiSpent) kpiSpent.textContent = formatMoney(monthExpense);
+  if (kpiIncome) kpiIncome.textContent = formatMoney(monthIncome);
+  if (kpiAvg) kpiAvg.textContent = formatMoney(avgDaily);
+  if (kpiMom) {
+    kpiMom.textContent = changeLabel;
+    kpiMom.className = `insights-kpi-strip__value ${changeClass}`;
+  }
+}
+
 // ── Main Refresh ────────────────────────────────────────────────────────────
 async function refreshUI() {
   [cachedExpenses, cachedAccounts, cachedBudgets, cachedRecurring] = await Promise.all([
@@ -571,11 +660,8 @@ async function refreshUI() {
   renderBudgets();
   renderRecurring();
   renderRecentTransactions();
-  renderCategories();
-  renderTrendChart();
-  renderSpendingAnalysis();
-  renderDailySummary();
-  renderInsights();
+  renderInsightsKpi();
+  renderInsightsForTab(activeInsightsTab);
   renderHistory();
   renderSyncState();
   renderAccounts();
@@ -849,6 +935,7 @@ function renderDailySummary() {
   const dailyTransactions = new Map();
   let monthTotalDebit = 0;
   let monthTotalCredit = 0;
+  const accountNetMap = new Map();
 
   for (const item of visible) {
     const dk = String(item.dateKey);
@@ -862,6 +949,14 @@ function renderDailySummary() {
     else { entry.credit += amt; monthTotalCredit += amt; }
     if (!dailyTransactions.has(dk)) dailyTransactions.set(dk, []);
     dailyTransactions.get(dk).push(item);
+
+    const accId = item.accountId;
+    if (accId) {
+      if (!accountNetMap.has(accId)) accountNetMap.set(accId, { debit: 0, credit: 0 });
+      const accEntry = accountNetMap.get(accId);
+      if (t === "debit") accEntry.debit += amt;
+      else accEntry.credit += amt;
+    }
   }
 
   const allDays = [];
@@ -895,11 +990,25 @@ function renderDailySummary() {
   html += `<div class="daily-summary__ratio-bar"><div class="daily-summary__ratio-debit" style="width:${debitPct}%"><span>${debitPct}%</span></div><div class="daily-summary__ratio-credit" style="width:${creditPct}%"><span>${creditPct}%</span></div></div>`;
   html += `<div class="daily-summary__net-flow"><span>Net Flow:</span><strong class="${netClass}">${monthNet >= 0 ? "+" : ""}${formatMoney(Math.abs(monthNet))}</strong></div>`;
 
+  if (accountNetMap.size > 1) {
+    html += `<div class="daily-summary__account-nets">`;
+    for (const [accId, data] of accountNetMap) {
+      const accName = getAccountName(accId) || "Unknown";
+      const accNet = data.credit - data.debit;
+      const accNetClass = accNet >= 0 ? "positive" : "negative";
+      html += `<div class="daily-summary__account-net-item">`;
+      html += `<span class="daily-summary__account-net-name">${escapeHtml(accName)}</span>`;
+      html += `<span class="daily-summary__account-net-value ${accNetClass}">${accNet >= 0 ? "+" : ""}${formatMoney(Math.abs(accNet))}</span>`;
+      html += `</div>`;
+    }
+    html += `</div>`;
+  }
+
   html += `<div class="daily-summary__header">`;
   html += `<button class="daily-summary__nav-btn" data-ds-nav="${prevKey}" aria-label="Previous month"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>`;
   html += `<span class="daily-summary__month">${escapeHtml(monthLabel)}</span>`;
   html += `<button class="daily-summary__nav-btn${canGoNext ? "" : " daily-summary__nav-btn--disabled"}" data-ds-nav="${nextKey}" ${canGoNext ? "" : "disabled"} aria-label="Next month"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>`;
-  html += `<button class="daily-summary__toggle-bal${dailySummaryShowBalance ? " active" : ""}" data-ds-toggle-bal title="Toggle running balance"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></button>`;
+  html += `<button class="daily-summary__toggle-bal${dailySummaryShowBalance ? " active" : ""}" data-ds-toggle-bal aria-label="${dailySummaryShowBalance ? "Hide running balance" : "Show running balance"}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg><span class="daily-summary__toggle-label">${dailySummaryShowBalance ? "Balance" : "Balance"}</span></button>`;
   html += `</div>`;
 
   html += '<div class="daily-summary__scroll">';
@@ -989,10 +1098,11 @@ function renderDailySummary() {
     html += renderWeekSeparator(weekCredit, weekDebit, currentWeek);
   }
 
-  html += "</div>";
+  html += "</div>"; // closes .daily-summary__table
 
   const totalNet = totalCredit - totalDebit;
   const totalNetClass = totalNet >= 0 ? "positive" : "negative";
+  html += `<div class="daily-summary__footer">`;
   html += `<div class="daily-summary__row daily-summary__row--total">`;
   html += `<span class="daily-summary__cell daily-summary__cell--date">Total</span>`;
   html += `<span class="daily-summary__cell daily-summary__cell--spark"></span>`;
@@ -1003,8 +1113,9 @@ function renderDailySummary() {
     html += `<span class="daily-summary__cell daily-summary__cell--bal"></span>`;
   }
   html += "</div>";
+  html += "</div>"; // closes .daily-summary__footer
 
-  html += "</div>";
+  html += "</div>"; // closes .daily-summary__scroll
   container.innerHTML = html;
 
   container.querySelectorAll("[data-ds-nav]").forEach((btn) => {
@@ -1049,17 +1160,127 @@ function renderWeekSeparator(weekCredit, weekDebit, weekNum) {
   return `<div class="daily-summary__week-sep"><span class="daily-summary__week-label">Week ${weekNum}</span><span class="daily-summary__week-total"><span class="daily-summary__week-debit">${formatMoney(weekDebit)}</span><span class="daily-summary__week-divider">/</span><span class="daily-summary__week-credit">${formatMoney(weekCredit)}</span><span class="daily-summary__week-net ${netClass}">${weekNet >= 0 ? "+" : ""}${formatMoney(Math.abs(weekNet))}</span></span></div>`;
 }
 
-// ── Spending Analysis (Heatmap + Income vs Expense) ─────────────────────────
-async function renderSpendingAnalysis() {
-  const container = document.querySelector("#spendingAnalysis");
+// ── Spending Heatmap ────────────────────────────────────────────────────────
+async function renderSpendingHeatmap() {
+  const container = document.querySelector("#spendingHeatmap");
   if (!container) return;
-  const { renderIncomeExpenseBar, renderDailyHeatmap } = await import("./chart-engine.js");
+  const { renderDailyHeatmap } = await import("./chart-engine.js");
 
   const visible = getVisibleExpenses();
   const month = currentMonthKey();
   const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
 
   const dailySpend = new Array(daysInMonth).fill(0);
+
+  for (const item of visible) {
+    const t = normalizeType(item.type);
+    if (t === "debit" && String(item.dateKey).startsWith(month)) {
+      const day = Number(String(item.dateKey).slice(8, 10));
+      if (day >= 1 && day <= daysInMonth) dailySpend[day - 1] += Number(item.amount);
+    }
+  }
+
+  const dailyData = dailySpend.map((amount, i) => ({ day: i + 1, amount }));
+  const currentMonthLabel = new Date(month + "-01").toLocaleDateString(appSettings.locale, { month: "long", year: "numeric" });
+  const heatmap = renderDailyHeatmap(dailyData, currentMonthLabel, formatMoney);
+
+  if (!heatmap) {
+    container.innerHTML = '<p class="spending-analysis__placeholder">Spend consistently to see daily patterns here.</p>';
+    return;
+  }
+
+  container.innerHTML = heatmap;
+
+  container.querySelectorAll("[data-heatmap-day]").forEach((cell) => {
+    cell.addEventListener("click", () => {
+      const day = Number(cell.dataset.heatmapDay);
+      showHeatmapDayDetail(day, month, container);
+    });
+  });
+}
+
+function showHeatmapDayDetail(day, month, container) {
+  const detailEl = container.querySelector("#heatmapDayDetail");
+  if (!detailEl) return;
+
+  const dk = `${month}-${String(day).padStart(2, "0")}`;
+  const visible = getVisibleExpenses();
+  const dayTxns = visible.filter((item) => String(item.dateKey) === dk);
+
+  container.querySelectorAll(".heatmap__cell--selected").forEach((c) => c.classList.remove("heatmap__cell--selected"));
+  const activeCell = container.querySelector(`[data-heatmap-day="${day}"]`);
+  if (activeCell) activeCell.classList.add("heatmap__cell--selected");
+
+  if (!dayTxns.length) {
+    const dayDate = new Date(dk + "T00:00:00");
+    const label = dayDate.toLocaleDateString(appSettings.locale, { weekday: "long", day: "numeric", month: "short" });
+    detailEl.innerHTML = `
+      <div class="heatmap__detail-header">
+        <span class="heatmap__detail-date">${escapeHtml(label)}</span>
+        <button class="heatmap__detail-close" data-close-detail aria-label="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <p class="heatmap__detail-empty">No transactions on this day.</p>
+    `;
+    detailEl.hidden = false;
+    detailEl.querySelector("[data-close-detail]").addEventListener("click", () => {
+      detailEl.hidden = true;
+      container.querySelectorAll(".heatmap__cell--selected").forEach((c) => c.classList.remove("heatmap__cell--selected"));
+    });
+    return;
+  }
+
+  const dayDate = new Date(dk + "T00:00:00");
+  const label = dayDate.toLocaleDateString(appSettings.locale, { weekday: "long", day: "numeric", month: "short" });
+
+  let totalDebit = 0;
+  let totalCredit = 0;
+  const txnRows = dayTxns.map((txn) => {
+    const t = normalizeType(txn.type);
+    const amt = Number(txn.amount);
+    if (t === "debit") totalDebit += amt;
+    else totalCredit += amt;
+    const amtClass = t === "credit" ? "positive" : "negative";
+    const sign = t === "credit" ? "+" : "-";
+    const desc = txn.description || txn.category || "Transaction";
+    return `
+      <div class="heatmap__detail-txn">
+        <span class="heatmap__detail-txn-cat">${escapeHtml(txn.category || "—")}</span>
+        <span class="heatmap__detail-txn-desc">${escapeHtml(desc)}</span>
+        <span class="heatmap__detail-txn-amt ${amtClass}">${sign}${escapeHtml(formatMoney(amt))}</span>
+      </div>
+    `;
+  }).join("");
+
+  detailEl.innerHTML = `
+    <div class="heatmap__detail-header">
+      <span class="heatmap__detail-date">${escapeHtml(label)}</span>
+      <button class="heatmap__detail-close" data-close-detail aria-label="Close">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="heatmap__detail-summary">
+      <span class="heatmap__detail-spent">Spent: <strong>${escapeHtml(formatMoney(totalDebit))}</strong></span>
+      ${totalCredit > 0 ? `<span class="heatmap__detail-income">Income: <strong>${escapeHtml(formatMoney(totalCredit))}</strong></span>` : ""}
+    </div>
+    <div class="heatmap__detail-list">${txnRows}</div>
+  `;
+  detailEl.hidden = false;
+
+  detailEl.querySelector("[data-close-detail]").addEventListener("click", () => {
+    detailEl.hidden = true;
+    container.querySelectorAll(".heatmap__cell--selected").forEach((c) => c.classList.remove("heatmap__cell--selected"));
+  });
+}
+
+// ── Income vs Expense Chart ─────────────────────────────────────────────────
+async function renderIncomeExpenseChart() {
+  const container = document.querySelector("#incomeExpenseChart");
+  if (!container) return;
+  const { renderIncomeExpenseBar } = await import("./chart-engine.js");
+
+  const visible = getVisibleExpenses();
   const monthlyIncome = new Map();
   const monthlyExpense = new Map();
 
@@ -1067,19 +1288,9 @@ async function renderSpendingAnalysis() {
     const t = normalizeType(item.type);
     const mk = String(item.dateKey).slice(0, 7);
     const amt = Number(item.amount);
-
-    if (t === "debit" && String(item.dateKey).startsWith(month)) {
-      const day = Number(String(item.dateKey).slice(8, 10));
-      if (day >= 1 && day <= daysInMonth) dailySpend[day - 1] += amt;
-    }
-
     if (t === "debit") monthlyExpense.set(mk, (monthlyExpense.get(mk) || 0) + amt);
     if (t === "credit") monthlyIncome.set(mk, (monthlyIncome.get(mk) || 0) + amt);
   }
-
-  const dailyData = dailySpend.map((amount, i) => ({ day: i + 1, amount }));
-  const currentMonthLabel = new Date(month + "-01").toLocaleDateString(appSettings.locale, { month: "long", year: "numeric" });
-  const heatmap = renderDailyHeatmap(dailyData, currentMonthLabel, formatMoney);
 
   const allMonths = new Set([...monthlyIncome.keys(), ...monthlyExpense.keys()]);
   const sortedMonths = [...allMonths].sort().slice(-6);
@@ -1090,12 +1301,63 @@ async function renderSpendingAnalysis() {
   }));
   const ieChart = renderIncomeExpenseBar(ieData, formatMoney);
 
-  if (!heatmap && !ieChart) {
-    container.innerHTML = '<p class="spending-analysis__placeholder">Spend consistently to see patterns and analysis here.</p>';
+  if (!ieChart) {
+    container.innerHTML = '<p class="spending-analysis__placeholder">Track income and expenses to compare them over time.</p>';
     return;
   }
 
-  container.innerHTML = heatmap + ieChart;
+  container.innerHTML = ieChart;
+}
+
+// ── Spending Analysis (Summary Stats) ───────────────────────────────────────
+async function renderSpendingAnalysis() {
+  const container = document.querySelector("#spendingAnalysis");
+  if (!container) return;
+
+  const visible = getVisibleExpenses();
+  const month = currentMonthKey();
+
+  const monthDebits = visible.filter((item) => normalizeType(item.type) === "debit" && String(item.dateKey).startsWith(month));
+  const totalSpent = monthDebits.reduce((sum, item) => sum + Number(item.amount), 0);
+  const txnCount = monthDebits.length;
+
+  if (txnCount === 0) {
+    container.innerHTML = '<p class="spending-analysis__placeholder">Keep tracking to see spending analysis here.</p>';
+    return;
+  }
+
+  const dayOfMonth = new Date().getDate();
+  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+  const daysLeft = daysInMonth - dayOfMonth;
+  const projected = dayOfMonth > 0 ? Math.round((totalSpent / dayOfMonth) * daysInMonth) : 0;
+
+  const categoryMap = new Map();
+  for (const item of monthDebits) {
+    const cat = item.category || "Uncategorized";
+    categoryMap.set(cat, (categoryMap.get(cat) || 0) + Number(item.amount));
+  }
+  const topCategory = [...categoryMap.entries()].sort((a, b) => b[1] - a[1])[0];
+
+  container.innerHTML = `
+    <div class="spending-stats">
+      <div class="spending-stats__item">
+        <span class="spending-stats__label">Transactions</span>
+        <strong class="spending-stats__value">${txnCount}</strong>
+      </div>
+      <div class="spending-stats__item">
+        <span class="spending-stats__label">Days Left</span>
+        <strong class="spending-stats__value">${daysLeft}</strong>
+      </div>
+      <div class="spending-stats__item">
+        <span class="spending-stats__label">Projected Total</span>
+        <strong class="spending-stats__value">${escapeHtml(formatMoney(projected))}</strong>
+      </div>
+      <div class="spending-stats__item">
+        <span class="spending-stats__label">Top Category</span>
+        <strong class="spending-stats__value spending-stats__value--small">${escapeHtml(topCategory ? topCategory[0] : "--")}</strong>
+      </div>
+    </div>
+  `;
 }
 
 // ── Smart Insights ─────────────────────────────────────────────────────────
@@ -3541,6 +3803,7 @@ async function initialize() {
   initScrollHeader();
   initPullToRefresh(() => refreshUI());
   initSwipeNavigation(tabs, switchTab);
+  initInsightsSubtabs();
   await initDarkMode();
   await loadDefaultAccount();
   await loadUserName();

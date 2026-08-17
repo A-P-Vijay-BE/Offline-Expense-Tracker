@@ -181,7 +181,7 @@ export function renderDailyHeatmap(dailyData, currentMonth, formatAmount) {
     if (intensity > 0.5) level = 3;
     if (intensity > 0.75) level = 4;
     const tooltip = `Day ${d.day}: ${esc(formatAmount(d.amount))}`;
-    return `<div class="heatmap__cell heatmap__cell--${level}" title="${tooltip}" aria-label="${tooltip}"><span class="heatmap__day">${d.day}</span></div>`;
+    return `<div class="heatmap__cell heatmap__cell--${level} heatmap__cell--clickable" data-heatmap-day="${d.day}" title="${tooltip}" aria-label="${tooltip}" role="button" tabindex="0"><span class="heatmap__day">${d.day}</span></div>`;
   }).join("");
 
   return `
@@ -197,6 +197,7 @@ export function renderDailyHeatmap(dailyData, currentMonth, formatAmount) {
         <div class="heatmap__cell heatmap__cell--4"></div>
         <span>More</span>
       </div>
+      <div class="heatmap__day-detail" id="heatmapDayDetail" hidden></div>
     </div>
   `;
 }

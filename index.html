@@ -856,63 +856,139 @@
         hidden
       >
         <div class="insights-panel">
-          <!-- Smart Insights & Alerts -->
-          <section class="insights-section" aria-label="Smart insights">
-            <div class="section-heading">
-              <h2>Smart Insights</h2>
+          <!-- Monthly Snapshot KPI Strip -->
+          <div id="insightsKpiStrip" class="insights-kpi-strip">
+            <div class="insights-kpi-strip__card">
+              <span class="insights-kpi-strip__label">Spent</span>
+              <strong class="insights-kpi-strip__value" id="kpiMonthSpent">--</strong>
             </div>
-            <div id="insightAlerts" class="insight-alerts">
-              <div class="insights-empty-state">
-                <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-                <p>Track expenses for at least <strong>7 days</strong> to unlock spending insights and patterns.</p>
-              </div>
+            <div class="insights-kpi-strip__card">
+              <span class="insights-kpi-strip__label">Income</span>
+              <strong class="insights-kpi-strip__value insights-kpi-strip__value--success" id="kpiMonthIncome">--</strong>
             </div>
-          </section>
+            <div class="insights-kpi-strip__card">
+              <span class="insights-kpi-strip__label">Avg/Day</span>
+              <strong class="insights-kpi-strip__value" id="kpiAvgDaily">--</strong>
+            </div>
+            <div class="insights-kpi-strip__card">
+              <span class="insights-kpi-strip__label">vs Last Month</span>
+              <strong class="insights-kpi-strip__value" id="kpiMomChange">--</strong>
+            </div>
+          </div>
 
-          <section class="insights-section" aria-label="Daily summary">
-            <div class="section-heading">
-              <h2>Daily Summary</h2>
-            </div>
-            <div id="dailySummary" class="daily-summary">
-              <div class="insights-empty-state insights-empty-state--small">
-                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                <p>Add transactions to see <strong>day-wise</strong> debit &amp; credit totals.</p>
-              </div>
-            </div>
-          </section>
+          <!-- Sub-navigation Pill Tabs -->
+          <nav class="insights-subtabs" role="tablist" aria-label="Insights sections">
+            <button class="insights-subtab active" role="tab" aria-selected="true" data-insights-tab="overview">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              Overview
+            </button>
+            <button class="insights-subtab" role="tab" aria-selected="false" data-insights-tab="daily">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              Daily
+            </button>
+            <button class="insights-subtab" role="tab" aria-selected="false" data-insights-tab="trends">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+              Trends
+            </button>
+            <button class="insights-subtab" role="tab" aria-selected="false" data-insights-tab="analysis">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+              Analysis
+            </button>
+          </nav>
 
-          <section class="insights-section" aria-label="Category breakdown">
-            <div class="section-heading">
-              <h2>Category Summary</h2>
-            </div>
-            <div id="categoryChart" class="category-chart">
-              <div class="skeleton skeleton-card" style="height:200px"></div>
-            </div>
-          </section>
-
-          <section class="insights-section" aria-label="Monthly trend">
-            <div class="section-heading">
-              <h2>Monthly Trend</h2>
-            </div>
-            <div id="trendChart" class="trend-chart">
-              <div class="insights-empty-state insights-empty-state--small">
-                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-                <p>Add expenses across <strong>2+ months</strong> to see your monthly trend.</p>
+          <!-- Tab: Overview -->
+          <div class="insights-tab-content active" data-insights-panel="overview">
+            <!-- Smart Insights & Alerts -->
+            <section class="insights-section" aria-label="Smart insights">
+              <div class="section-heading">
+                <h2>Smart Insights</h2>
               </div>
-            </div>
-          </section>
-
-          <section class="insights-section" aria-label="Spending analysis">
-            <div class="section-heading">
-              <h2>Spending Analysis</h2>
-            </div>
-            <div id="spendingAnalysis" class="spending-analysis">
-              <div class="insights-empty-state insights-empty-state--small">
-                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-                <p>Keep tracking for a <strong>full month</strong> to see spending analysis and patterns.</p>
+              <div id="insightAlerts" class="insight-alerts">
+                <div class="insights-empty-state">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                  <p>Track expenses for at least <strong>7 days</strong> to unlock spending insights and patterns.</p>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+
+            <section class="insights-section" aria-label="Category breakdown">
+              <div class="section-heading">
+                <h2>Category Summary</h2>
+              </div>
+              <div id="categoryChart" class="category-chart">
+                <div class="skeleton skeleton-card" style="height:200px"></div>
+              </div>
+            </section>
+          </div>
+
+          <!-- Tab: Daily -->
+          <div class="insights-tab-content" data-insights-panel="daily">
+            <section class="insights-section insights-section--full" aria-label="Daily summary">
+              <div class="section-heading">
+                <h2>Daily Summary</h2>
+              </div>
+              <div id="dailySummary" class="daily-summary">
+                <div class="insights-empty-state insights-empty-state--small">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  <p>Add transactions to see <strong>day-wise</strong> debit &amp; credit totals.</p>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <!-- Tab: Trends -->
+          <div class="insights-tab-content" data-insights-panel="trends">
+            <section class="insights-section" aria-label="Monthly trend">
+              <div class="section-heading">
+                <h2>Monthly Trend</h2>
+              </div>
+              <div id="trendChart" class="trend-chart">
+                <div class="insights-empty-state insights-empty-state--small">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                  <p>Add expenses across <strong>2+ months</strong> to see your monthly trend.</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="insights-section" aria-label="Income vs Expense">
+              <div class="section-heading">
+                <h2>Income vs Expense</h2>
+              </div>
+              <div id="incomeExpenseChart" class="income-expense-chart">
+                <div class="insights-empty-state insights-empty-state--small">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                  <p>Track income and expenses to compare them over time.</p>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <!-- Tab: Analysis -->
+          <div class="insights-tab-content" data-insights-panel="analysis">
+            <section class="insights-section" aria-label="Spending heatmap">
+              <div class="section-heading">
+                <h2>Spending Heatmap</h2>
+              </div>
+              <div id="spendingHeatmap" class="spending-heatmap">
+                <div class="insights-empty-state insights-empty-state--small">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  <p>Keep tracking for a <strong>full month</strong> to see spending patterns.</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="insights-section" aria-label="Spending analysis">
+              <div class="section-heading">
+                <h2>Spending Analysis</h2>
+              </div>
+              <div id="spendingAnalysis" class="spending-analysis">
+                <div class="insights-empty-state insights-empty-state--small">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                  <p>Keep tracking for a <strong>full month</strong> to see spending analysis and patterns.</p>
+                </div>
+              </div>
+            </section>
+          </div>
         </div>
       </section>
 
