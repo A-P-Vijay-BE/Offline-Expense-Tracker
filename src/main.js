@@ -1197,6 +1197,12 @@ async function renderSpendingHeatmap() {
       showHeatmapDayDetail(day, month, container);
     });
   });
+
+  const isCurrentMonth = month === currentMonthKey();
+  if (isCurrentMonth) {
+    const today = new Date().getDate();
+    showHeatmapDayDetail(today, month, container);
+  }
 }
 
 function showHeatmapDayDetail(day, month, container) {
