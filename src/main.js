@@ -1,6 +1,16 @@
 import "./style.css";
 import { registerSW } from "virtual:pwa-register";
 import {
+  animateValue,
+  initRippleEffect,
+  initPageTransitions,
+  initScrollHeader,
+  initPullToRefresh,
+  haptic,
+  showSuccessAnimation,
+  initSwipeNavigation,
+} from "./ui-enhancements.js";
+import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
   signInWithEmailAndPassword,
@@ -452,9 +462,12 @@ function applyUserName() {
   }
 
   if (dashboardDate) {
-    dashboardDate.textContent = new Date().toLocaleDateString(appSettings.locale, {
+    const dateStr = new Date().toLocaleDateString(appSettings.locale, {
       weekday: "long", day: "numeric", month: "long", year: "numeric",
     });
+    const todayTxCount = cachedExpenses.filter((e) => !e.deleted && e.dateKey === localDateKey()).length;
+    const contextHint = todayTxCount > 0 ? ` • ${todayTxCount} transaction${todayTxCount > 1 ? "s" : ""} today` : "";
+    dashboardDate.textContent = dateStr + contextHint;
   }
 
   if (nameInput && !nameInput.dataset.touched) {
@@ -561,6 +574,7 @@ async function refreshUI() {
   renderCategories();
   renderTrendChart();
   renderSpendingAnalysis();
+  renderDailySummary();
   renderInsights();
   renderHistory();
   renderSyncState();
@@ -595,9 +609,22 @@ function renderSummary() {
   // Savings rate
   const savings = monthIncome > 0 ? Math.round(((monthIncome - monthExpense) / monthIncome) * 100) : 0;
 
-  el.todayTotal.textContent = formatMoney(todayExpense);
-  el.monthTotal.textContent = formatMoney(monthExpense);
-  el.incomeTotal.textContent = formatMoney(monthIncome);
+  el.todayTotal._formatter = formatMoney;
+  el.monthTotal._formatter = formatMoney;
+  el.incomeTotal._formatter = formatMoney;
+
+  const prevToday = Number(el.todayTotal._lastVal) || 0;
+  const prevMonth = Number(el.monthTotal._lastVal) || 0;
+  const prevIncome = Number(el.incomeTotal._lastVal) || 0;
+
+  animateValue(el.todayTotal, prevToday, todayExpense);
+  animateValue(el.monthTotal, prevMonth, monthExpense);
+  animateValue(el.incomeTotal, prevIncome, monthIncome);
+
+  el.todayTotal._lastVal = todayExpense;
+  el.monthTotal._lastVal = monthExpense;
+  el.incomeTotal._lastVal = monthIncome;
+
   if (el.totalAvailable) el.totalAvailable.textContent = formatMoney(getTotalBalance());
   if (el.avgDailySpend) el.avgDailySpend.textContent = formatMoney(avgDaily);
   if (el.savingsRate) el.savingsRate.textContent = `${savings}%`;
@@ -802,6 +829,224 @@ async function renderTrendChart() {
       <span class="trend-chart__change ${changeClass}">${escapeHtml(changeLabel)} vs last month</span>
     </div>
   `;
+}
+
+// ── Daily Summary (Day-wise Debit/Credit Totals) ────────────────────────────
+let dailySummaryMonth = null;
+let dailySummaryShowBalance = false;
+
+function renderDailySummary() {
+  const container = document.querySelector("#dailySummary");
+  if (!container) return;
+
+  if (!dailySummaryMonth) dailySummaryMonth = currentMonthKey();
+  const month = dailySummaryMonth;
+  const today = localDateKey();
+  const visible = getVisibleExpenses();
+
+  const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+  const dailyMap = new Map();
+  const dailyTransactions = new Map();
+  let monthTotalDebit = 0;
+  let monthTotalCredit = 0;
+
+  for (const item of visible) {
+    const dk = String(item.dateKey);
+    if (!dk.startsWith(month)) continue;
+    const t = normalizeType(item.type);
+    if (t !== "debit" && t !== "credit") continue;
+    const amt = Number(item.amount);
+    if (!dailyMap.has(dk)) dailyMap.set(dk, { debit: 0, credit: 0 });
+    const entry = dailyMap.get(dk);
+    if (t === "debit") { entry.debit += amt; monthTotalDebit += amt; }
+    else { entry.credit += amt; monthTotalCredit += amt; }
+    if (!dailyTransactions.has(dk)) dailyTransactions.set(dk, []);
+    dailyTransactions.get(dk).push(item);
+  }
+
+  const allDays = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dk = `${month}-${String(d).padStart(2, "0")}`;
+    const data = dailyMap.get(dk) || { debit: 0, credit: 0 };
+    allDays.push({ dk, ...data });
+  }
+
+  const maxDebit = Math.max(...allDays.map((d) => d.debit), 1);
+  const isCurrentMonth = month === currentMonthKey();
+  const monthDate = new Date(month + "-01");
+  const monthLabel = monthDate.toLocaleDateString(appSettings.locale, { month: "long", year: "numeric" });
+
+  const prevMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() - 1, 1);
+  const nextMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 1);
+  const canGoNext = !isCurrentMonth;
+  const prevKey = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, "0")}`;
+  const nextKey = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, "0")}`;
+
+  const grandTotal = monthTotalDebit + monthTotalCredit || 1;
+  const debitPct = Math.round((monthTotalDebit / grandTotal) * 100);
+  const creditPct = 100 - debitPct;
+  const monthNet = monthTotalCredit - monthTotalDebit;
+  const netClass = monthNet >= 0 ? "positive" : "negative";
+
+  let html = `<div class="daily-summary__visual-totals">`;
+  html += `<div class="daily-summary__visual-card daily-summary__visual-card--debit"><span class="daily-summary__visual-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg></span><span class="daily-summary__visual-label">Total Debit</span><strong class="daily-summary__visual-amount">${formatMoney(monthTotalDebit)}</strong></div>`;
+  html += `<div class="daily-summary__visual-card daily-summary__visual-card--credit"><span class="daily-summary__visual-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg></span><span class="daily-summary__visual-label">Total Credit</span><strong class="daily-summary__visual-amount">${formatMoney(monthTotalCredit)}</strong></div>`;
+  html += `</div>`;
+  html += `<div class="daily-summary__ratio-bar"><div class="daily-summary__ratio-debit" style="width:${debitPct}%"><span>${debitPct}%</span></div><div class="daily-summary__ratio-credit" style="width:${creditPct}%"><span>${creditPct}%</span></div></div>`;
+  html += `<div class="daily-summary__net-flow"><span>Net Flow:</span><strong class="${netClass}">${monthNet >= 0 ? "+" : ""}${formatMoney(Math.abs(monthNet))}</strong></div>`;
+
+  html += `<div class="daily-summary__header">`;
+  html += `<button class="daily-summary__nav-btn" data-ds-nav="${prevKey}" aria-label="Previous month"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>`;
+  html += `<span class="daily-summary__month">${escapeHtml(monthLabel)}</span>`;
+  html += `<button class="daily-summary__nav-btn${canGoNext ? "" : " daily-summary__nav-btn--disabled"}" data-ds-nav="${nextKey}" ${canGoNext ? "" : "disabled"} aria-label="Next month"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>`;
+  html += `<button class="daily-summary__toggle-bal${dailySummaryShowBalance ? " active" : ""}" data-ds-toggle-bal title="Toggle running balance"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></button>`;
+  html += `</div>`;
+
+  html += '<div class="daily-summary__scroll">';
+  html += '<div class="daily-summary__table">';
+  html += `<div class="daily-summary__row daily-summary__row--head"><span class="daily-summary__cell daily-summary__cell--date">Date</span><span class="daily-summary__cell daily-summary__cell--spark"></span><span class="daily-summary__cell daily-summary__cell--debit">Debit</span><span class="daily-summary__cell daily-summary__cell--credit">Credit</span><span class="daily-summary__cell daily-summary__cell--net">Net</span>${dailySummaryShowBalance ? '<span class="daily-summary__cell daily-summary__cell--bal">Balance</span>' : ""}</div>`;
+
+  let totalDebit = 0;
+  let totalCredit = 0;
+  let runningBalance = 0;
+
+  const sortedDays = [...allDays].reverse();
+  const weekRows = [];
+  let currentWeek = null;
+  let weekDebit = 0;
+  let weekCredit = 0;
+
+  const runningBalances = new Map();
+  let cumBal = 0;
+  for (const day of allDays) {
+    cumBal += day.credit - day.debit;
+    runningBalances.set(day.dk, cumBal);
+  }
+
+  for (const day of sortedDays) {
+    const { dk, debit, credit } = day;
+    const dayDate = new Date(dk + "T00:00:00");
+    const weekNum = getISOWeek(dayDate);
+    const isFutureDay = isCurrentMonth && dk > today;
+
+    if (isFutureDay) continue;
+
+    if (currentWeek !== null && currentWeek !== weekNum) {
+      html += renderWeekSeparator(weekCredit, weekDebit, currentWeek);
+      weekDebit = 0;
+      weekCredit = 0;
+    }
+    currentWeek = weekNum;
+
+    totalDebit += debit;
+    totalCredit += credit;
+    weekDebit += debit;
+    weekCredit += credit;
+
+    const net = credit - debit;
+    const isToday = dk === today;
+    const isNoSpend = debit === 0 && credit === 0;
+    const heatPct = debit / maxDebit;
+    const dayLabel = dayDate.toLocaleDateString(appSettings.locale, { weekday: "short", day: "numeric" });
+    const netClass = net >= 0 ? "positive" : "negative";
+    const sparkWidth = Math.round((debit / maxDebit) * 100);
+    const bal = runningBalances.get(dk) || 0;
+
+    let rowClass = "daily-summary__row";
+    if (isToday) rowClass += " daily-summary__row--today";
+    if (isNoSpend) rowClass += " daily-summary__row--no-spend";
+
+    const heatBg = debit > 0 ? `rgba(var(--heat-rgb), ${(heatPct * 0.1).toFixed(3)})` : "transparent";
+    const hasTransactions = dailyTransactions.has(dk) && dailyTransactions.get(dk).length > 0;
+
+    html += `<div class="${rowClass}" style="background:${heatBg}" ${hasTransactions ? `data-ds-expand="${dk}"` : ""}>`;
+    html += `<span class="daily-summary__cell daily-summary__cell--date">${isNoSpend ? '<span class="daily-summary__no-spend-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>' : ""}${escapeHtml(dayLabel)}${isToday ? '<span class="daily-summary__today-badge">Today</span>' : ""}</span>`;
+    html += `<span class="daily-summary__cell daily-summary__cell--spark"><span class="daily-summary__spark-bar" style="width:${sparkWidth}%"></span></span>`;
+    html += `<span class="daily-summary__cell daily-summary__cell--debit">${debit > 0 ? formatMoney(debit) : "—"}</span>`;
+    html += `<span class="daily-summary__cell daily-summary__cell--credit">${credit > 0 ? formatMoney(credit) : "—"}</span>`;
+    html += `<span class="daily-summary__cell daily-summary__cell--net ${netClass}">${isNoSpend ? "—" : (net >= 0 ? "+" : "") + formatMoney(Math.abs(net))}</span>`;
+    if (dailySummaryShowBalance) {
+      const balClass = bal >= 0 ? "positive" : "negative";
+      html += `<span class="daily-summary__cell daily-summary__cell--bal ${balClass}">${bal >= 0 ? "+" : ""}${formatMoney(Math.abs(bal))}</span>`;
+    }
+    html += `${hasTransactions ? '<span class="daily-summary__expand-icon"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>' : ""}</div>`;
+
+    if (hasTransactions) {
+      html += `<div class="daily-summary__detail" id="ds-detail-${dk}" hidden>`;
+      for (const txn of dailyTransactions.get(dk)) {
+        const txnType = normalizeType(txn.type);
+        const txnClass = txnType === "credit" ? "positive" : "negative";
+        html += `<div class="daily-summary__txn">`;
+        html += `<span class="daily-summary__txn-desc">${escapeHtml(txn.category || txn.description || "Transaction")}</span>`;
+        html += `<span class="daily-summary__txn-amt ${txnClass}">${txnType === "credit" ? "+" : "-"}${formatMoney(txn.amount)}</span>`;
+        html += `</div>`;
+      }
+      html += `</div>`;
+    }
+  }
+
+  if (currentWeek !== null) {
+    html += renderWeekSeparator(weekCredit, weekDebit, currentWeek);
+  }
+
+  html += "</div>";
+
+  const totalNet = totalCredit - totalDebit;
+  const totalNetClass = totalNet >= 0 ? "positive" : "negative";
+  html += `<div class="daily-summary__row daily-summary__row--total">`;
+  html += `<span class="daily-summary__cell daily-summary__cell--date">Total</span>`;
+  html += `<span class="daily-summary__cell daily-summary__cell--spark"></span>`;
+  html += `<span class="daily-summary__cell daily-summary__cell--debit">${formatMoney(totalDebit)}</span>`;
+  html += `<span class="daily-summary__cell daily-summary__cell--credit">${formatMoney(totalCredit)}</span>`;
+  html += `<span class="daily-summary__cell daily-summary__cell--net ${totalNetClass}">${totalNet >= 0 ? "+" : ""}${formatMoney(Math.abs(totalNet))}</span>`;
+  if (dailySummaryShowBalance) {
+    html += `<span class="daily-summary__cell daily-summary__cell--bal"></span>`;
+  }
+  html += "</div>";
+
+  html += "</div>";
+  container.innerHTML = html;
+
+  container.querySelectorAll("[data-ds-nav]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      dailySummaryMonth = btn.dataset.dsNav;
+      renderDailySummary();
+    });
+  });
+
+  container.querySelector("[data-ds-toggle-bal]")?.addEventListener("click", () => {
+    dailySummaryShowBalance = !dailySummaryShowBalance;
+    renderDailySummary();
+  });
+
+  container.querySelectorAll("[data-ds-expand]").forEach((row) => {
+    row.addEventListener("click", () => {
+      const dk = row.dataset.dsExpand;
+      const detail = document.getElementById(`ds-detail-${dk}`);
+      if (!detail) return;
+      const isHidden = detail.hidden;
+      container.querySelectorAll(".daily-summary__detail").forEach((d) => { d.hidden = true; });
+      container.querySelectorAll(".daily-summary__row--expanded").forEach((r) => { r.classList.remove("daily-summary__row--expanded"); });
+      if (isHidden) {
+        detail.hidden = false;
+        row.classList.add("daily-summary__row--expanded");
+      }
+    });
+  });
+}
+
+function getISOWeek(date) {
+  const d = new Date(date.getTime());
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  return 1 + Math.round(((d - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+}
+
+function renderWeekSeparator(weekCredit, weekDebit, weekNum) {
+  const weekNet = weekCredit - weekDebit;
+  const netClass = weekNet >= 0 ? "positive" : "negative";
+  return `<div class="daily-summary__week-sep"><span class="daily-summary__week-label">Week ${weekNum}</span><span class="daily-summary__week-total"><span class="daily-summary__week-debit">${formatMoney(weekDebit)}</span><span class="daily-summary__week-divider">/</span><span class="daily-summary__week-credit">${formatMoney(weekCredit)}</span><span class="daily-summary__week-net ${netClass}">${weekNet >= 0 ? "+" : ""}${formatMoney(Math.abs(weekNet))}</span></span></div>`;
 }
 
 // ── Spending Analysis (Heatmap + Income vs Expense) ─────────────────────────
@@ -1374,6 +1619,8 @@ async function handleTransactionSubmit(event) {
   showMessage(el.composerMessage, "");
 
   await refreshUI();
+  haptic("success");
+  showSuccessAnimation(document.querySelector(".tx-form-card"));
   showToast("Saved on this device.");
   syncPendingRecords();
 }
@@ -1416,6 +1663,8 @@ async function handleQuickAdd() {
   lastSelectedAccountId = accountId;
   el.quickAddInput.value = "";
   await refreshUI();
+  haptic("success");
+  showSuccessAnimation(document.querySelector(".add-panel"));
   showToast(`${txType === "credit" ? "Credit" : "Debit"} of ${formatMoney(parsed.amount)} saved.`);
   syncPendingRecords();
 }
@@ -3287,6 +3536,11 @@ async function checkStorageQuota() {
 }
 
 async function initialize() {
+  initRippleEffect();
+  initPageTransitions();
+  initScrollHeader();
+  initPullToRefresh(() => refreshUI());
+  initSwipeNavigation(tabs, switchTab);
   await initDarkMode();
   await loadDefaultAccount();
   await loadUserName();

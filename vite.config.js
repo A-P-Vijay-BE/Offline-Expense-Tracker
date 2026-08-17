@@ -3,11 +3,24 @@ import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
   build: {
+    target: "es2020",
+    cssMinify: "lightningcss",
+    minify: "terser",
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+        passes: 2,
+      },
+    },
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (id.includes("node_modules/firebase") || id.includes("node_modules/@firebase")) {
             return "firebase";
+          }
+          if (id.includes("node_modules/idb")) {
+            return "idb";
           }
         },
       },
@@ -51,7 +64,7 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
+        globPatterns: ["**/*.{js,css,html,png,svg,ico,webp}"],
         navigateFallback: "index.html",
         cleanupOutdatedCaches: true,
         clientsClaim: true,
@@ -64,6 +77,14 @@ export default defineConfig({
               cacheName: "tesseract-cache",
               expiration: { maxEntries: 10, maxAgeSeconds: 30 * 24 * 60 * 60 },
               cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            urlPattern: /\.(woff2?|ttf|otf)$/,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "font-cache",
+              expiration: { maxEntries: 10, maxAgeSeconds: 365 * 24 * 60 * 60 },
             },
           },
         ],
