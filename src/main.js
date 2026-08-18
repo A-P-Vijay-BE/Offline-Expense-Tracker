@@ -2430,8 +2430,8 @@ function openAccountActivityModal(accountId) {
   const avatar = document.querySelector("#chatAccountAvatar");
   if (avatar) avatar.textContent = account.name.charAt(0).toUpperCase();
 
-  renderAccountActivity(accountId);
   openModal(el.accountActivityModal);
+  renderAccountActivity(accountId);
 
   const chatInput = document.querySelector("#chatInput");
   if (chatInput) setTimeout(() => chatInput.focus(), 100);
