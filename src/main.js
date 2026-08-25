@@ -1161,13 +1161,30 @@ function renderWeekSeparator(weekCredit, weekDebit, weekNum) {
 }
 
 // ── Spending Heatmap ────────────────────────────────────────────────────────
+let heatmapMonthKey = null;
+
+function getHeatmapMonthKey() {
+  if (!heatmapMonthKey) heatmapMonthKey = currentMonthKey();
+  return heatmapMonthKey;
+}
+
+function shiftHeatmapMonth(offset) {
+  const current = getHeatmapMonthKey();
+  const y = Number(current.slice(0, 4));
+  const m = Number(current.slice(5, 7));
+  const d = new Date(y, m - 1 + offset, 1);
+  heatmapMonthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  renderSpendingHeatmap();
+  renderSpendingAnalysis();
+}
+
 async function renderSpendingHeatmap() {
   const container = document.querySelector("#spendingHeatmap");
   if (!container) return;
   const { renderDailyHeatmap } = await import("./chart-engine.js");
 
+  const month = getHeatmapMonthKey();
   const visible = getVisibleExpenses();
-  const month = currentMonthKey();
   const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
 
   const dailySpend = new Array(daysInMonth).fill(0);
@@ -1182,7 +1199,10 @@ async function renderSpendingHeatmap() {
 
   const dailyData = dailySpend.map((amount, i) => ({ day: i + 1, amount }));
   const currentMonthLabel = new Date(month + "-01").toLocaleDateString(appSettings.locale, { month: "long", year: "numeric" });
-  const heatmap = renderDailyHeatmap(dailyData, currentMonthLabel, formatMoney);
+  const yearNum = Number(month.slice(0, 4));
+  const monthNum = Number(month.slice(5, 7));
+  const isCurrentMonth = month === currentMonthKey();
+  const heatmap = renderDailyHeatmap(dailyData, currentMonthLabel, formatMoney, yearNum, monthNum, isCurrentMonth);
 
   if (!heatmap) {
     container.innerHTML = '<p class="spending-analysis__placeholder">Spend consistently to see daily patterns here.</p>';
@@ -1191,6 +1211,11 @@ async function renderSpendingHeatmap() {
 
   container.innerHTML = heatmap;
 
+  const prevBtn = container.querySelector("#heatmapPrevMonth");
+  const nextBtn = container.querySelector("#heatmapNextMonth");
+  if (prevBtn) prevBtn.addEventListener("click", () => shiftHeatmapMonth(-1));
+  if (nextBtn) nextBtn.addEventListener("click", () => shiftHeatmapMonth(1));
+
   container.querySelectorAll("[data-heatmap-day]").forEach((cell) => {
     cell.addEventListener("click", () => {
       const day = Number(cell.dataset.heatmapDay);
@@ -1198,7 +1223,6 @@ async function renderSpendingHeatmap() {
     });
   });
 
-  const isCurrentMonth = month === currentMonthKey();
   if (isCurrentMonth) {
     const today = new Date().getDate();
     showHeatmapDayDetail(today, month, container);
@@ -1321,7 +1345,8 @@ async function renderSpendingAnalysis() {
   if (!container) return;
 
   const visible = getVisibleExpenses();
-  const month = currentMonthKey();
+  const month = getHeatmapMonthKey();
+  const isCurrentMonth = month === currentMonthKey();
 
   const monthDebits = visible.filter((item) => normalizeType(item.type) === "debit" && String(item.dateKey).startsWith(month));
   const totalSpent = monthDebits.reduce((sum, item) => sum + Number(item.amount), 0);
@@ -1332,10 +1357,21 @@ async function renderSpendingAnalysis() {
     return;
   }
 
-  const dayOfMonth = new Date().getDate();
-  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
-  const daysLeft = daysInMonth - dayOfMonth;
-  const projected = dayOfMonth > 0 ? Math.round((totalSpent / dayOfMonth) * daysInMonth) : 0;
+  const yearNum = Number(month.slice(0, 4));
+  const monthNum = Number(month.slice(5, 7));
+  const daysInMonth = new Date(yearNum, monthNum, 0).getDate();
+
+  let daysLeftLabel, projectedLabel;
+  if (isCurrentMonth) {
+    const dayOfMonth = new Date().getDate();
+    const daysLeft = daysInMonth - dayOfMonth;
+    const projected = dayOfMonth > 0 ? Math.round((totalSpent / dayOfMonth) * daysInMonth) : 0;
+    daysLeftLabel = `${daysLeft}`;
+    projectedLabel = escapeHtml(formatMoney(projected));
+  } else {
+    daysLeftLabel = "—";
+    projectedLabel = escapeHtml(formatMoney(totalSpent));
+  }
 
   const categoryMap = new Map();
   for (const item of monthDebits) {
@@ -1344,6 +1380,8 @@ async function renderSpendingAnalysis() {
   }
   const topCategory = [...categoryMap.entries()].sort((a, b) => b[1] - a[1])[0];
 
+  const avgDaily = Math.round(totalSpent / (isCurrentMonth ? new Date().getDate() : daysInMonth));
+
   container.innerHTML = `
     <div class="spending-stats">
       <div class="spending-stats__item">
@@ -1351,12 +1389,12 @@ async function renderSpendingAnalysis() {
         <strong class="spending-stats__value">${txnCount}</strong>
       </div>
       <div class="spending-stats__item">
-        <span class="spending-stats__label">Days Left</span>
-        <strong class="spending-stats__value">${daysLeft}</strong>
+        <span class="spending-stats__label">${isCurrentMonth ? "Days Left" : "Avg / Day"}</span>
+        <strong class="spending-stats__value">${isCurrentMonth ? daysLeftLabel : escapeHtml(formatMoney(avgDaily))}</strong>
       </div>
       <div class="spending-stats__item">
-        <span class="spending-stats__label">Projected Total</span>
-        <strong class="spending-stats__value">${escapeHtml(formatMoney(projected))}</strong>
+        <span class="spending-stats__label">${isCurrentMonth ? "Projected Total" : "Total Spent"}</span>
+        <strong class="spending-stats__value">${projectedLabel}</strong>
       </div>
       <div class="spending-stats__item">
         <span class="spending-stats__label">Top Category</span>
@@ -3624,10 +3662,6 @@ const chatSendBtn = document.querySelector("#chatSendBtn");
 const chatInput = document.querySelector("#chatInput");
 if (chatSendBtn) chatSendBtn.addEventListener("click", handleChatSend);
 if (chatInput) {
-  chatInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleChatSend(); }
-  });
-  // Auto-resize textarea
   chatInput.addEventListener("input", () => {
     chatInput.style.height = "auto";
     chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";

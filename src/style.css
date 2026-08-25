@@ -4620,6 +4620,38 @@ button:focus-visible {
   gap: 10px;
 }
 
+.heatmap__nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.heatmap__nav-btn {
+  background: var(--bg-muted);
+  border: none;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.heatmap__nav-btn:active {
+  transform: scale(0.9);
+}
+
+.heatmap__nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
 .heatmap__title {
   font-size: 0.82rem;
   font-weight: 600;
@@ -4635,8 +4667,20 @@ button:focus-visible {
 
 .heatmap__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(28px, 36px));
+  grid-template-columns: repeat(7, 1fr);
   gap: 3px;
+}
+
+.heatmap__weekday-header {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--text-faint);
+  text-align: center;
+  padding: 2px 0 4px;
+}
+
+.heatmap__cell--empty {
+  visibility: hidden;
 }
 
 .heatmap__cell {
