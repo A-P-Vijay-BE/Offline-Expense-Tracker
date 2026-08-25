@@ -160,18 +160,35 @@ export function renderIncomeExpenseBar(months, formatAmount) {
   `;
 }
 
-export function renderDailyHeatmap(dailyData, currentMonth, formatAmount) {
+export function renderDailyHeatmap(dailyData, currentMonth, formatAmount, year, month, isCurrentMonth) {
   if (!dailyData.length) return "";
 
   const maxVal = Math.max(...dailyData.map((d) => d.amount));
+
+  const titleBar = `
+    <div class="heatmap__nav">
+      <button class="heatmap__nav-btn" id="heatmapPrevMonth" aria-label="Previous month">&#8249;</button>
+      <div class="heatmap__title">Daily Spending — ${esc(currentMonth)}</div>
+      <button class="heatmap__nav-btn" id="heatmapNextMonth" aria-label="Next month" ${isCurrentMonth ? "disabled" : ""}>&#8250;</button>
+    </div>
+  `;
+
   if (maxVal === 0) {
     return `
       <div class="daily-heatmap">
-        <div class="heatmap__title">Daily Spending — ${esc(currentMonth)}</div>
+        ${titleBar}
         <p class="heatmap__empty">No spending recorded this month yet.</p>
       </div>
     `;
   }
+
+  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const headers = weekdays.map((d) => `<div class="heatmap__weekday-header">${d}</div>`).join("");
+
+  const firstDayOfMonth = new Date(year, month - 1, 1).getDay();
+  const startOffset = firstDayOfMonth;
+
+  const emptyCells = Array(startOffset).fill('<div class="heatmap__cell heatmap__cell--empty"></div>').join("");
 
   const cells = dailyData.map((d) => {
     const intensity = d.amount / maxVal;
@@ -186,8 +203,8 @@ export function renderDailyHeatmap(dailyData, currentMonth, formatAmount) {
 
   return `
     <div class="daily-heatmap">
-      <div class="heatmap__title">Daily Spending — ${esc(currentMonth)}</div>
-      <div class="heatmap__grid">${cells}</div>
+      ${titleBar}
+      <div class="heatmap__grid">${headers}${emptyCells}${cells}</div>
       <div class="heatmap__scale">
         <span>Less</span>
         <div class="heatmap__cell heatmap__cell--0"></div>
