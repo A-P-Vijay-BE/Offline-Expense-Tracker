@@ -8,8 +8,19 @@ async function getWorker() {
     const { createWorker } = await import("tesseract.js");
     worker = await createWorker("eng", 1, {
       logger: (m) => {
-        if (m.status === "recognizing text" && typeof m.progress === "number") {
-          updateScanProgress(Math.round(m.progress * 100));
+        if (typeof m.progress !== "number") return;
+        const p = m.progress;
+        const statusMap = {
+          "loading tesseract core": { base: 0, weight: 20, label: "Loading OCR engine..." },
+          "initializing tesseract": { base: 20, weight: 5, label: "Initializing engine..." },
+          "loading language traineddata": { base: 25, weight: 30, label: "Downloading language data..." },
+          "initializing api": { base: 55, weight: 5, label: "Preparing scanner..." },
+          "recognizing text": { base: 60, weight: 40, label: "Analyzing receipt..." },
+        };
+        const phase = statusMap[m.status];
+        if (phase) {
+          const percent = Math.round(phase.base + p * phase.weight);
+          updateScanProgress(percent, `${phase.label} ${Math.round(p * 100)}%`);
         }
       },
     });
@@ -22,11 +33,11 @@ async function getWorker() {
   }
 }
 
-function updateScanProgress(percent) {
+function updateScanProgress(percent, message) {
   const bar = document.querySelector("#scanProgressFill");
   const label = document.querySelector("#scanProgressLabel");
   if (bar) bar.style.width = `${percent}%`;
-  if (label) label.textContent = `Analyzing receipt... ${percent}%`;
+  if (label) label.textContent = message || `Analyzing receipt... ${percent}%`;
 }
 
 function preprocessImage(file) {

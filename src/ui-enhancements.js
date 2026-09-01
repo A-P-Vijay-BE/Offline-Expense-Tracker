@@ -88,6 +88,7 @@ export function initPullToRefresh(refreshCallback) {
 
   document.addEventListener("touchstart", (e) => {
     if (window.scrollY === 0 && e.touches.length === 1) {
+      if (e.target.closest(".modal-overlay:not(.hidden), .settings-panel:not(.hidden), .bottom-sheet:not(.hidden)")) return;
       startY = e.touches[0].clientY;
       pulling = true;
     }
@@ -159,15 +160,27 @@ export function initSwipeNavigation(tabs, switchTabFn) {
   const main = document.querySelector("main");
   if (!main) return;
 
+  let swipeTarget = null;
+
   main.addEventListener("touchstart", (e) => {
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
+    swipeTarget = e.target;
   }, { passive: true });
 
   main.addEventListener("touchend", (e) => {
     const dx = e.changedTouches[0].clientX - startX;
     const dy = e.changedTouches[0].clientY - startY;
     if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx)) return;
+
+    if (swipeTarget && swipeTarget.closest(".modal-overlay:not(.hidden), .settings-panel:not(.hidden), .bottom-sheet:not(.hidden)")) return;
+
+    let el = swipeTarget;
+    while (el && el !== main) {
+      const ox = getComputedStyle(el).overflowX;
+      if (ox === "auto" || ox === "scroll") return;
+      el = el.parentElement;
+    }
 
     const activeIdx = tabs.findIndex((t) => !t.panel.hidden);
     if (activeIdx === -1) return;

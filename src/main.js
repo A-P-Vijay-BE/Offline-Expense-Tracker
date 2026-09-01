@@ -527,10 +527,26 @@ function setNetworkBadge() {
   el.networkBadge.classList.toggle("offline", !online);
 }
 
+function formatSyncTime(date) {
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const time = date.toLocaleTimeString(appSettings.locale, { hour: "2-digit", minute: "2-digit" });
+  if (isToday) return `Synced ${time}`;
+  const dateStr = date.toLocaleDateString(appSettings.locale, { day: "numeric", month: "short" });
+  return `Synced ${dateStr}, ${time}`;
+}
+
 function updateLastSynced() {
   const now = new Date();
-  const time = now.toLocaleTimeString(appSettings.locale, { hour: "2-digit", minute: "2-digit" });
-  el.lastSyncedTime.textContent = `Synced ${time}`;
+  el.lastSyncedTime.textContent = formatSyncTime(now);
+  putSetting("lastSyncedTime", now.toISOString());
+}
+
+async function restoreLastSynced() {
+  const saved = await getSetting("lastSyncedTime");
+  if (saved) {
+    el.lastSyncedTime.textContent = formatSyncTime(new Date(saved));
+  }
 }
 
 // ── Balance Helpers ─────────────────────────────────────────────────────────
@@ -3196,7 +3212,10 @@ el.installBtn.addEventListener("click", async () => {
 const authForm = document.querySelector("#authForm");
 if (authForm) authForm.addEventListener("submit", (e) => { e.preventDefault(); handleSignIn(); });
 el.createAccountBtn.addEventListener("click", (e) => { e.preventDefault(); handleCreateAccount(); });
-el.logoutBtn.addEventListener("click", () => signOut(auth));
+el.logoutBtn.addEventListener("click", async () => {
+  const confirmed = await showConfirm("Sign Out", "Are you sure you want to sign out?");
+  if (confirmed) signOut(auth);
+});
 
 // Password toggle
 document.querySelector("#togglePasswordBtn").addEventListener("click", () => {
@@ -3428,8 +3447,8 @@ async function handleReceiptFile(file) {
   scanResult.classList.add("hidden");
   const progressFill = document.querySelector("#scanProgressFill");
   const progressLabel = document.querySelector("#scanProgressLabel");
-  if (progressFill) progressFill.style.width = "5%";
-  if (progressLabel) progressLabel.textContent = "Loading OCR engine...";
+  if (progressFill) progressFill.style.width = "2%";
+  if (progressLabel) progressLabel.textContent = "Preparing image...";
 
   try {
     const receiptModule = await import("./receipt-scanner.js");
@@ -3850,6 +3869,7 @@ async function initialize() {
   pruneOldAuditEntries();
   checkStorageQuota();
   setNetworkBadge();
+  await restoreLastSynced();
   if (el.txDate) el.txDate.value = localDateKey();
   await restoreLastTab();
   await refreshUI();
