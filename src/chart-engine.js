@@ -1,6 +1,14 @@
 const CHART_COLORS = [
-  "#128c7e", "#25d366", "#075e54", "#34b7f1", "#00a884",
-  "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4",
+  "#128c7e",
+  "#25d366",
+  "#075e54",
+  "#34b7f1",
+  "#00a884",
+  "#f59e0b",
+  "#ef4444",
+  "#8b5cf6",
+  "#ec4899",
+  "#06b6d4",
 ];
 
 function esc(value) {
@@ -22,7 +30,10 @@ export function renderDonutChart(categories, formatAmount) {
   const total = categories.reduce((s, c) => s + c.amount, 0);
   if (total === 0) return "";
 
-  const cx = 80, cy = 80, outerR = 70, innerR = 42;
+  const cx = 80,
+    cy = 80,
+    outerR = 70,
+    innerR = 42;
   let currentAngle = 0;
   const paths = [];
   const legends = [];
@@ -56,10 +67,14 @@ export function renderDonutChart(categories, formatAmount) {
       ].join(" ");
 
       const tooltip = `${esc(cat.name)}: ${esc(formatAmount(cat.amount))} (${pct}%)`;
-      paths.push(`<path d="${d}" fill="${color}" class="donut-segment" data-tooltip="${tooltip}"><title>${tooltip}</title></path>`);
+      paths.push(
+        `<path d="${d}" fill="${color}" class="donut-segment" data-tooltip="${tooltip}"><title>${tooltip}</title></path>`
+      );
     }
 
-    legends.push(`<div class="donut-legend__item"><span class="donut-legend__dot" style="background:${color}"></span><span class="donut-legend__label">${esc(cat.name)}</span><span class="donut-legend__value">${pct}%</span></div>`);
+    legends.push(
+      `<div class="donut-legend__item"><span class="donut-legend__dot" style="background:${color}"></span><span class="donut-legend__label">${esc(cat.name)}</span><span class="donut-legend__value">${pct}%</span></div>`
+    );
     currentAngle += slice;
   });
 
@@ -83,7 +98,8 @@ export function renderLineChart(dataPoints, formatAmount) {
   if (dataPoints.length < 2) return "";
 
   const padding = { top: 20, right: 16, bottom: 32, left: 12 };
-  const width = 320, height = 160;
+  const width = 320,
+    height = 160;
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
 
@@ -97,19 +113,31 @@ export function renderLineChart(dataPoints, formatAmount) {
   });
 
   const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
-  const areaPath = linePath + ` L ${points[points.length - 1].x.toFixed(1)} ${padding.top + chartH} L ${points[0].x.toFixed(1)} ${padding.top + chartH} Z`;
+  const areaPath =
+    linePath +
+    ` L ${points[points.length - 1].x.toFixed(1)} ${padding.top + chartH} L ${points[0].x.toFixed(1)} ${padding.top + chartH} Z`;
 
   const gridLines = [];
   const gridCount = 4;
   for (let i = 0; i <= gridCount; i++) {
     const y = padding.top + (i / gridCount) * chartH;
-    gridLines.push(`<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--border-color)" stroke-width="0.5" stroke-dasharray="3,3"/>`);
+    gridLines.push(
+      `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--border-color)" stroke-width="0.5" stroke-dasharray="3,3"/>`
+    );
   }
 
-  const labels = points.filter((_, i) => i % Math.max(1, Math.floor(points.length / 6)) === 0 || i === points.length - 1);
-  const xLabels = labels.map((p) => `<text x="${p.x.toFixed(1)}" y="${height - 4}" text-anchor="middle" class="line-chart__x-label">${esc(p.label)}</text>`);
+  const labels = points.filter(
+    (_, i) => i % Math.max(1, Math.floor(points.length / 6)) === 0 || i === points.length - 1
+  );
+  const xLabels = labels.map(
+    (p) =>
+      `<text x="${p.x.toFixed(1)}" y="${height - 4}" text-anchor="middle" class="line-chart__x-label">${esc(p.label)}</text>`
+  );
 
-  const dots = points.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" class="line-chart__dot" tabindex="0" aria-label="${esc(p.label)}: ${esc(formatAmount(p.value))}"><title>${esc(p.label)}: ${esc(formatAmount(p.value))}</title></circle>`);
+  const dots = points.map(
+    (p) =>
+      `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" class="line-chart__dot" tabindex="0" aria-label="${esc(p.label)}: ${esc(formatAmount(p.value))}"><title>${esc(p.label)}: ${esc(formatAmount(p.value))}</title></circle>`
+  );
 
   return `
     <div class="line-chart">
@@ -130,10 +158,12 @@ export function renderIncomeExpenseBar(months, formatAmount) {
   const maxVal = Math.max(...months.flatMap((m) => [m.income, m.expense]));
   if (maxVal === 0) return "";
 
-  const bars = months.slice(-6).map((m) => {
-    const incH = Math.max(3, Math.round((m.income / maxVal) * 100));
-    const expH = Math.max(3, Math.round((m.expense / maxVal) * 100));
-    return `
+  const bars = months
+    .slice(-6)
+    .map((m) => {
+      const incH = Math.max(3, Math.round((m.income / maxVal) * 100));
+      const expH = Math.max(3, Math.round((m.expense / maxVal) * 100));
+      return `
       <div class="ie-bar__group">
         <div class="ie-bar__col">
           <div class="ie-bar__bar ie-bar__bar--income" style="height:${incH}%" title="Income: ${esc(formatAmount(m.income))}">
@@ -146,7 +176,8 @@ export function renderIncomeExpenseBar(months, formatAmount) {
         <span class="ie-bar__label">${esc(m.label)}</span>
       </div>
     `;
-  }).join("");
+    })
+    .join("");
 
   return `
     <div class="ie-bar-chart">
@@ -190,16 +221,18 @@ export function renderDailyHeatmap(dailyData, currentMonth, formatAmount, year, 
 
   const emptyCells = Array(startOffset).fill('<div class="heatmap__cell heatmap__cell--empty"></div>').join("");
 
-  const cells = dailyData.map((d) => {
-    const intensity = d.amount / maxVal;
-    let level = 0;
-    if (intensity > 0) level = 1;
-    if (intensity > 0.25) level = 2;
-    if (intensity > 0.5) level = 3;
-    if (intensity > 0.75) level = 4;
-    const tooltip = `Day ${d.day}: ${esc(formatAmount(d.amount))}`;
-    return `<div class="heatmap__cell heatmap__cell--${level} heatmap__cell--clickable" data-heatmap-day="${d.day}" title="${tooltip}" aria-label="${tooltip}" role="button" tabindex="0"><span class="heatmap__day">${d.day}</span></div>`;
-  }).join("");
+  const cells = dailyData
+    .map((d) => {
+      const intensity = d.amount / maxVal;
+      let level = 0;
+      if (intensity > 0) level = 1;
+      if (intensity > 0.25) level = 2;
+      if (intensity > 0.5) level = 3;
+      if (intensity > 0.75) level = 4;
+      const tooltip = `Day ${d.day}: ${esc(formatAmount(d.amount))}`;
+      return `<div class="heatmap__cell heatmap__cell--${level} heatmap__cell--clickable" data-heatmap-day="${d.day}" title="${tooltip}" aria-label="${tooltip}" role="button" tabindex="0"><span class="heatmap__day">${d.day}</span></div>`;
+    })
+    .join("");
 
   return `
     <div class="daily-heatmap">
@@ -219,41 +252,55 @@ export function renderDailyHeatmap(dailyData, currentMonth, formatAmount, year, 
   `;
 }
 
-export function renderDailyBarChart(dailyPoints, formatAmount, todayDay) {
+export function renderDailyBarChart(dailyPoints, formatAmount, todayDay, year, month) {
   if (!dailyPoints.length) return "";
 
   const maxVal = Math.max(...dailyPoints.map((d) => d.value));
   if (maxVal === 0) return "";
 
-  const padding = { top: 12, right: 8, bottom: 28, left: 8 };
-  const width = 400, height = 140;
+  const padding = { top: 14, right: 8, bottom: 36, left: 8 };
+  const width = 420,
+    height = 150;
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
   const barGap = 1;
-  const barWidth = Math.max(2, (chartW - barGap * dailyPoints.length) / dailyPoints.length);
+  const barWidth = Math.max(3, (chartW - barGap * dailyPoints.length) / dailyPoints.length);
 
   const gridLines = [];
   for (let i = 0; i <= 3; i++) {
     const y = padding.top + (i / 3) * chartH;
-    gridLines.push(`<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--border-color)" stroke-width="0.5" stroke-dasharray="3,3"/>`);
+    gridLines.push(
+      `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--border-color)" stroke-width="0.5" stroke-dasharray="3,3"/>`
+    );
   }
+
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   const bars = dailyPoints.map((d, i) => {
     const barH = maxVal > 0 ? (d.value / maxVal) * chartH : 0;
     const x = padding.left + i * (barWidth + barGap);
     const y = padding.top + chartH - barH;
     const isToday = d.day === todayDay;
-    const cls = isToday ? "daily-bar--today" : "";
-    const tooltip = `Day ${d.day}: ${esc(formatAmount(d.value))}`;
+    const cls = isToday ? "daily-bar--today" : d.value === 0 ? "daily-bar--zero" : "";
+    const date = new Date(year, month - 1, d.day);
+    const dayName = dayNames[date.getDay()];
+    const amountStr = d.value > 0 ? formatAmount(d.value) : "No spend";
+    const tooltip = `${dayName}, ${d.day} — ${esc(amountStr)}`;
     return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(0, barH).toFixed(1)}" rx="1.5" class="daily-bar ${cls}" aria-label="${tooltip}"><title>${tooltip}</title></rect>`;
   });
 
-  const labelInterval = dailyPoints.length > 15 ? 5 : dailyPoints.length > 7 ? 3 : 1;
-  const labels = dailyPoints.filter((d) => d.day % labelInterval === 0 || d.day === 1).map((d, _, arr) => {
-    const idx = dailyPoints.indexOf(d);
-    const x = padding.left + idx * (barWidth + barGap) + barWidth / 2;
-    return `<text x="${x.toFixed(1)}" y="${height - 4}" text-anchor="middle" class="daily-bar__label">${d.day}</text>`;
-  });
+  // Label every 5th day + day 1 + today, showing day number and abbreviated day name
+  const labels = dailyPoints
+    .filter((d) => d.day === 1 || d.day % 5 === 0 || d.day === todayDay)
+    .map((d) => {
+      const idx = d.day - 1;
+      const x = padding.left + idx * (barWidth + barGap) + barWidth / 2;
+      const date = new Date(year, month - 1, d.day);
+      const dayName = dayNames[date.getDay()].charAt(0);
+      const isToday = d.day === todayDay;
+      const cls = isToday ? "daily-bar__label--today" : "daily-bar__label";
+      return `<text x="${x.toFixed(1)}" y="${height - 14}" text-anchor="middle" class="${cls}">${d.day}</text><text x="${x.toFixed(1)}" y="${height - 4}" text-anchor="middle" class="daily-bar__day-name">${dayName}</text>`;
+    });
 
   return `
     <div class="daily-bar-chart">

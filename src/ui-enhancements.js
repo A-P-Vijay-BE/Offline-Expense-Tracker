@@ -151,6 +151,60 @@ export function markTabRendered(tabKey) {
   renderedTabs.add(tabKey);
 }
 
+// Swipe-to-delete on history items
+export function initSwipeToDelete(listEl, onDelete) {
+  if (!listEl) return;
+  let startX = 0, startY = 0, swiping = null, threshold = 80;
+
+  function resetItem(item) {
+    item.style.transform = "";
+    item.style.transition = "";
+    item.classList.remove("swiping", "history-item--delete-ready");
+  }
+
+  listEl.addEventListener("touchstart", (e) => {
+    const item = e.target.closest(".history-item");
+    if (!item) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    swiping = item;
+    swiping.style.transition = "none";
+    swiping.classList.add("swiping");
+  }, { passive: true });
+
+  listEl.addEventListener("touchmove", (e) => {
+    if (!swiping) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+    if (Math.abs(dy) > Math.abs(dx)) { resetItem(swiping); swiping = null; return; }
+    if (dx > 0) return;
+    const clamped = Math.max(dx, -120);
+    swiping.style.transform = `translateX(${clamped}px)`;
+    if (Math.abs(dx) > threshold) swiping.classList.add("history-item--delete-ready");
+    else swiping.classList.remove("history-item--delete-ready");
+  }, { passive: true });
+
+  listEl.addEventListener("touchend", async () => {
+    if (!swiping) return;
+    const item = swiping;
+    swiping = null;
+    item.style.transition = "";
+    if (item.classList.contains("history-item--delete-ready")) {
+      item.classList.remove("history-item--delete-ready");
+      item.style.transform = "translateX(-90px)";
+      const id = item.dataset.id;
+      if (id && onDelete) {
+        const deleted = await onDelete(id);
+        resetItem(item);
+      } else {
+        resetItem(item);
+      }
+    } else {
+      resetItem(item);
+    }
+  });
+}
+
 // Swipe gesture for tabs
 export function initSwipeNavigation(tabs, switchTabFn) {
   let startX = 0;

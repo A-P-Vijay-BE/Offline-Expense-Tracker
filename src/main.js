@@ -9,21 +9,10 @@ import {
   haptic,
   showSuccessAnimation,
   initSwipeNavigation,
+  initSwipeToDelete,
 } from "./ui-enhancements.js";
-import {
-  createUserWithEmailAndPassword,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut,
-} from "firebase/auth";
-import {
-  collection,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-  setDoc,
-} from "firebase/firestore";
+import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { collection, doc, onSnapshot, orderBy, query, setDoc } from "firebase/firestore";
 
 import { appSettings } from "./firebase-config.js";
 import { auth, firestore, isFirebaseConfigured } from "./firebase.js";
@@ -93,7 +82,11 @@ window.addEventListener("unhandledrejection", (event) => {
   reportError(event.reason, "unhandledrejection");
   const msg = event.reason?.message || "An unexpected error occurred.";
   const toast = document.querySelector("#toast");
-  if (toast) { toast.textContent = msg; toast.classList.remove("hidden"); setTimeout(() => toast.classList.add("hidden"), 3500); }
+  if (toast) {
+    toast.textContent = msg;
+    toast.classList.remove("hidden");
+    setTimeout(() => toast.classList.add("hidden"), 3500);
+  }
 });
 
 // ── PWA Registration ────────────────────────────────────────────────────────
@@ -109,8 +102,17 @@ registerSW({
 
 // ── Constants ───────────────────────────────────────────────────────────────
 const CATEGORIES = [
-  "Food", "Groceries", "Bills", "Transport", "Shopping",
-  "Health", "Salary", "Income", "Entertainment", "Education", "Other",
+  "Food",
+  "Groceries",
+  "Bills",
+  "Transport",
+  "Shopping",
+  "Health",
+  "Salary",
+  "Income",
+  "Entertainment",
+  "Education",
+  "Other",
 ];
 
 const CATEGORY_KEYWORDS = {
@@ -138,7 +140,10 @@ function suggestCategory(description) {
 // ── Debounce Utility ───────────────────────────────────────────────────────
 function debounce(fn, ms = 250) {
   let timer;
-  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
 }
 
 // ── DOM Elements ────────────────────────────────────────────────────────────
@@ -351,6 +356,44 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+const CATEGORY_COLORS = {
+  Food: "#ef4444",
+  Groceries: "#f59e0b",
+  Bills: "#8b5cf6",
+  Transport: "#06b6d4",
+  Shopping: "#ec4899",
+  Health: "#10b981",
+  Entertainment: "#f97316",
+  Education: "#3b82f6",
+  Salary: "#22c55e",
+  Income: "#25d366",
+  Other: "#6b7280",
+};
+function getCategoryColor(category) {
+  return CATEGORY_COLORS[category] || CATEGORY_COLORS.Other;
+}
+
+const EMPTY_STATE_ICONS = {
+  transactions:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>',
+  search:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  accounts:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg>',
+  chart:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
+  insights:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  recurring:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>',
+  activity:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
+};
+function renderEmptyState(icon, text) {
+  const svg = EMPTY_STATE_ICONS[icon] || EMPTY_STATE_ICONS.transactions;
+  return `<div class="empty-state empty-state--unified">${svg}<p>${text}</p></div>`;
+}
+
 function showMessage(element, text, isError = false) {
   if (!element) return;
   element.textContent = text;
@@ -359,7 +402,14 @@ function showMessage(element, text, isError = false) {
 
 function setFieldError(fieldEl, errorEl, message) {
   if (errorEl) errorEl.textContent = message;
-  if (fieldEl) fieldEl.classList.add(fieldEl.classList.contains("tx-amount-group") ? "tx-amount-group--error" : fieldEl.classList.contains("form-field") ? "form-field--error" : "tx-field--error");
+  if (fieldEl)
+    fieldEl.classList.add(
+      fieldEl.classList.contains("tx-amount-group")
+        ? "tx-amount-group--error"
+        : fieldEl.classList.contains("form-field")
+          ? "form-field--error"
+          : "tx-field--error"
+    );
 }
 
 function clearFieldError(fieldEl, errorEl) {
@@ -367,10 +417,23 @@ function clearFieldError(fieldEl, errorEl) {
   if (fieldEl) fieldEl.classList.remove("tx-field--error", "form-field--error", "tx-amount-group--error");
 }
 
-function showToast(text) {
-  if (undoTimeout) { clearTimeout(undoTimeout); undoTransactions = []; }
+function showToast(text, type = "info") {
+  if (undoTimeout) {
+    clearTimeout(undoTimeout);
+    undoTransactions = [];
+  }
   el.toast.className = "toast";
-  el.toast.textContent = text;
+  el.toast.classList.add(`toast--${type}`);
+  const icons = {
+    success:
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    error:
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    warning:
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    info: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  };
+  el.toast.innerHTML = `<span class="toast__icon">${icons[type] || icons.info}</span><span class="toast__text">${escapeHtml(text)}</span>`;
   el.toast.classList.remove("hidden");
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => {
@@ -451,6 +514,22 @@ function applyUserName() {
   const nameInput = document.querySelector("#displayNameInput");
 
   const greeting = getTimeGreeting();
+  const greetingEl = document.querySelector("#dashboardGreeting");
+  if (greetingEl) {
+    greetingEl.classList.remove(
+      "dashboard-greeting--morning",
+      "dashboard-greeting--afternoon",
+      "dashboard-greeting--evening"
+    );
+    const hour = new Date().getHours();
+    greetingEl.classList.add(
+      hour < 12
+        ? "dashboard-greeting--morning"
+        : hour < 17
+          ? "dashboard-greeting--afternoon"
+          : "dashboard-greeting--evening"
+    );
+  }
 
   if (userName) {
     if (topbarGreeting) topbarGreeting.textContent = greeting;
@@ -466,7 +545,10 @@ function applyUserName() {
 
   if (dashboardDate) {
     const dateStr = new Date().toLocaleDateString(appSettings.locale, {
-      weekday: "long", day: "numeric", month: "long", year: "numeric",
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
     });
     const todayTxCount = cachedExpenses.filter((e) => !e.deleted && e.dateKey === localDateKey()).length;
     const contextHint = todayTxCount > 0 ? ` • ${todayTxCount} transaction${todayTxCount > 1 ? "s" : ""} today` : "";
@@ -501,13 +583,37 @@ const tabs = [
   { btn: el.tabInsights, panel: el.panelInsights, key: "insights" },
 ];
 
+let currentTabIndex = 0;
 function switchTab(key) {
+  const prevIndex = currentTabIndex;
+  const newIndex = tabs.findIndex((t) => t.key === key);
+  const direction = newIndex > prevIndex ? "left" : "right";
+  currentTabIndex = newIndex >= 0 ? newIndex : 0;
+
   for (const tab of tabs) {
     const isActive = tab.key === key;
     tab.btn.classList.toggle("tab-nav__btn--active", isActive);
     tab.btn.setAttribute("aria-selected", String(isActive));
-    tab.panel.classList.toggle("tab-panel--active", isActive);
-    tab.panel.hidden = !isActive;
+    if (isActive && tab.panel.hidden) {
+      tab.panel.hidden = false;
+      tab.panel.classList.add("tab-panel--active");
+      tab.panel.classList.remove("tab-slide--left", "tab-slide--right");
+      tab.panel.classList.add(`tab-slide--${direction}`);
+      requestAnimationFrame(() => {
+        tab.panel.classList.remove(`tab-slide--${direction}`);
+      });
+    } else if (!isActive) {
+      tab.panel.classList.remove("tab-panel--active", "tab-slide--left", "tab-slide--right");
+      tab.panel.hidden = true;
+    }
+  }
+  if (key === "dashboard" && prevIndex !== newIndex) {
+    const todayVal = Number(el.todayTotal?._lastVal) || 0;
+    const monthVal = Number(el.monthTotal?._lastVal) || 0;
+    const incomeVal = Number(el.incomeTotal?._lastVal) || 0;
+    if (todayVal) animateValue(el.todayTotal, 0, todayVal);
+    if (monthVal) animateValue(el.monthTotal, 0, monthVal);
+    if (incomeVal) animateValue(el.incomeTotal, 0, incomeVal);
   }
   if (el.fabBtn) {
     el.fabBtn.classList.toggle("fab--hidden", key === "add");
@@ -650,7 +756,8 @@ function renderInsightsKpi() {
 
   const change = prevExpense > 0 ? Math.round(((monthExpense - prevExpense) / prevExpense) * 100) : 0;
   const changeLabel = change > 0 ? `+${change}%` : `${change}%`;
-  const changeClass = change > 0 ? "insights-kpi-strip__value--danger" : change < 0 ? "insights-kpi-strip__value--success" : "";
+  const changeClass =
+    change > 0 ? "insights-kpi-strip__value--danger" : change < 0 ? "insights-kpi-strip__value--success" : "";
 
   const kpiSpent = document.querySelector("#kpiMonthSpent");
   const kpiIncome = document.querySelector("#kpiMonthIncome");
@@ -749,15 +856,21 @@ function renderBudgets() {
   const visible = getVisibleExpenses();
   const budgetData = [];
 
-  el.budgetList.innerHTML = cachedBudgets.map((budget) => {
-    const spent = visible
-      .filter((item) => normalizeType(item.type) === "debit" && item.category === budget.category && String(item.dateKey).startsWith(month))
-      .reduce((sum, item) => sum + Number(item.amount), 0);
-    const percent = budget.amount > 0 ? Math.round((spent / budget.amount) * 100) : 0;
-    const statusClass = percent > 100 ? "budget-over" : percent >= 75 ? "budget-warning" : "";
-    const barWidth = Math.min(percent, 100);
-    budgetData.push({ category: budget.category, spent, limit: budget.amount, percent });
-    return `
+  el.budgetList.innerHTML = cachedBudgets
+    .map((budget) => {
+      const spent = visible
+        .filter(
+          (item) =>
+            normalizeType(item.type) === "debit" &&
+            item.category === budget.category &&
+            String(item.dateKey).startsWith(month)
+        )
+        .reduce((sum, item) => sum + Number(item.amount), 0);
+      const percent = budget.amount > 0 ? Math.round((spent / budget.amount) * 100) : 0;
+      const statusClass = percent > 100 ? "budget-over" : percent >= 75 ? "budget-warning" : "";
+      const barWidth = Math.min(percent, 100);
+      budgetData.push({ category: budget.category, spent, limit: budget.amount, percent });
+      return `
       <div class="budget-item ${statusClass}" data-budget-id="${escapeHtml(budget.id)}">
         <div class="budget-item__header">
           <span class="budget-item__category">${escapeHtml(budget.category)}</span>
@@ -772,7 +885,8 @@ function renderBudgets() {
         </div>
       </div>
     `;
-  }).join("");
+    })
+    .join("");
 
   renderBudgetAlert(budgetData);
 }
@@ -782,7 +896,10 @@ function renderBudgetAlert(budgetData) {
   if (!alertCard) return;
 
   const warnings = budgetData.filter((b) => b.percent >= 75).sort((a, b) => b.percent - a.percent);
-  if (!warnings.length) { alertCard.classList.add("hidden"); return; }
+  if (!warnings.length) {
+    alertCard.classList.add("hidden");
+    return;
+  }
 
   const top = warnings[0];
   const remaining = top.limit - top.spent;
@@ -810,7 +927,10 @@ function renderRecurring() {
   const paused = cachedRecurring.filter((r) => r.paused && !r.deleted);
 
   if (!active.length && !paused.length) {
-    list.innerHTML = '<p class="empty-state">No recurring transactions. Use "Repeat" option when adding a transaction.</p>';
+    list.innerHTML = renderEmptyState(
+      "recurring",
+      "No recurring transactions yet. Use the <strong>Repeat</strong> option when adding a transaction."
+    );
     return;
   }
 
@@ -840,7 +960,10 @@ function renderRecentTransactions() {
   if (!el.recentTransactions) return;
   const recent = getVisibleExpenses().slice(0, 5);
   if (!recent.length) {
-    el.recentTransactions.innerHTML = '<p class="empty-state">No transactions yet.</p>';
+    el.recentTransactions.innerHTML = renderEmptyState(
+      "transactions",
+      "No transactions yet. Tap <strong>+</strong> to add your first expense."
+    );
     return;
   }
   el.recentTransactions.innerHTML = recent.map((item) => renderTransactionItem(item)).join("");
@@ -863,7 +986,7 @@ async function renderCategories() {
   const sorted = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1]);
 
   if (!sorted.length) {
-    el.categoryChart.innerHTML = '<p class="empty-state">No expense data for this month.</p>';
+    el.categoryChart.innerHTML = renderEmptyState("chart", "No expense data for this month.");
     return;
   }
 
@@ -871,9 +994,10 @@ async function renderCategories() {
   const donut = renderDonutChart(categories, formatMoney);
 
   const maximum = sorted[0][1];
-  const bars = sorted.map(([category, amount]) => {
-    const width = Math.max(5, Math.round((amount / maximum) * 100));
-    return `
+  const bars = sorted
+    .map(([category, amount]) => {
+      const width = Math.max(5, Math.round((amount / maximum) * 100));
+      return `
       <div class="category-row">
         <div class="category-meta">
           <span>${escapeHtml(category)}</span>
@@ -884,9 +1008,12 @@ async function renderCategories() {
         </div>
       </div>
     `;
-  }).join("");
+    })
+    .join("");
 
-  el.categoryChart.innerHTML = donut + `
+  el.categoryChart.innerHTML =
+    donut +
+    `
     <details class="category-details">
       <summary class="category-details__toggle">Show breakdown details</summary>
       <div class="category-bars">${bars}</div>
@@ -937,25 +1064,23 @@ async function renderTrendChart() {
   `;
 }
 
-// ── Daily Spending Bar Chart (current month) ───────────────────────────────
+// ── Daily Spending Bar Chart (current month in Trends) ─────────────────────
 async function renderDailySpendingChart() {
   const container = document.querySelector("#dailySpendingChart");
+  const heading = document.querySelector("#dailySpendingHeading");
   if (!container) return;
+
   const { renderDailyBarChart } = await import("./chart-engine.js");
   const visible = getVisibleExpenses();
   const now = new Date();
   const year = now.getFullYear();
-  const month = now.getMonth();
-  const currentMonthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const todayDay = now.getDate();
+  const month = now.getMonth() + 1;
 
   const dailyTotals = new Array(daysInMonth).fill(0);
   for (const item of visible) {
     const t = normalizeType(item.type);
     if (t !== "debit") continue;
     const mk = String(item.dateKey).slice(0, 7);
-    if (mk !== currentMonthKey) continue;
     const day = parseInt(String(item.dateKey).slice(8, 10), 10);
     if (day >= 1 && day <= daysInMonth) dailyTotals[day - 1] += Number(item.amount);
   }
@@ -968,12 +1093,25 @@ async function renderDailySpendingChart() {
 
   const dataPoints = dailyTotals.map((val, i) => ({ day: i + 1, value: val }));
   const avgPerDay = total / todayDay;
+  const peakDay = dataPoints.reduce((a, b) => (b.value > a.value ? b : a), dataPoints[0]);
+  const peakDate = new Date(year, month - 1, peakDay.day);
+  const peakLabel = peakDate.toLocaleDateString(appSettings.locale, { weekday: "short", day: "numeric" });
 
   container.innerHTML = `
-    ${renderDailyBarChart(dataPoints, formatMoney, todayDay)}
-    <div class="trend-chart__footer">
-      <span>Total: <strong>${escapeHtml(formatMoney(total))}</strong></span>
-      <span>Avg/day: <strong>${escapeHtml(formatMoney(avgPerDay))}</strong></span>
+    ${renderDailyBarChart(dataPoints, formatMoney, todayDay, year, month)}
+    <div class="daily-spending__stats">
+      <div class="daily-spending__stat">
+        <span class="daily-spending__stat-label">Total</span>
+        <strong class="daily-spending__stat-value">${escapeHtml(formatMoney(total))}</strong>
+      </div>
+      <div class="daily-spending__stat">
+        <span class="daily-spending__stat-label">Avg/day</span>
+        <strong class="daily-spending__stat-value">${escapeHtml(formatMoney(avgPerDay))}</strong>
+      </div>
+      <div class="daily-spending__stat">
+        <span class="daily-spending__stat-label">Peak (${escapeHtml(peakLabel)})</span>
+        <strong class="daily-spending__stat-value daily-spending__stat-value--peak">${escapeHtml(formatMoney(peakDay.value))}</strong>
+      </div>
     </div>
   `;
 }
@@ -1006,8 +1144,13 @@ function renderDailySummary() {
     const amt = Number(item.amount);
     if (!dailyMap.has(dk)) dailyMap.set(dk, { debit: 0, credit: 0 });
     const entry = dailyMap.get(dk);
-    if (t === "debit") { entry.debit += amt; monthTotalDebit += amt; }
-    else { entry.credit += amt; monthTotalCredit += amt; }
+    if (t === "debit") {
+      entry.debit += amt;
+      monthTotalDebit += amt;
+    } else {
+      entry.credit += amt;
+      monthTotalCredit += amt;
+    }
     if (!dailyTransactions.has(dk)) dailyTransactions.set(dk, []);
     dailyTransactions.get(dk).push(item);
 
@@ -1197,8 +1340,12 @@ function renderDailySummary() {
       const detail = document.getElementById(`ds-detail-${dk}`);
       if (!detail) return;
       const isHidden = detail.hidden;
-      container.querySelectorAll(".daily-summary__detail").forEach((d) => { d.hidden = true; });
-      container.querySelectorAll(".daily-summary__row--expanded").forEach((r) => { r.classList.remove("daily-summary__row--expanded"); });
+      container.querySelectorAll(".daily-summary__detail").forEach((d) => {
+        d.hidden = true;
+      });
+      container.querySelectorAll(".daily-summary__row--expanded").forEach((r) => {
+        r.classList.remove("daily-summary__row--expanded");
+      });
       if (isHidden) {
         detail.hidden = false;
         row.classList.add("daily-summary__row--expanded");
@@ -1259,14 +1406,18 @@ async function renderSpendingHeatmap() {
   }
 
   const dailyData = dailySpend.map((amount, i) => ({ day: i + 1, amount }));
-  const currentMonthLabel = new Date(month + "-01").toLocaleDateString(appSettings.locale, { month: "long", year: "numeric" });
+  const currentMonthLabel = new Date(month + "-01").toLocaleDateString(appSettings.locale, {
+    month: "long",
+    year: "numeric",
+  });
   const yearNum = Number(month.slice(0, 4));
   const monthNum = Number(month.slice(5, 7));
   const isCurrentMonth = month === currentMonthKey();
   const heatmap = renderDailyHeatmap(dailyData, currentMonthLabel, formatMoney, yearNum, monthNum, isCurrentMonth);
 
   if (!heatmap) {
-    container.innerHTML = '<p class="spending-analysis__placeholder">Spend consistently to see daily patterns here.</p>';
+    container.innerHTML =
+      '<p class="spending-analysis__placeholder">Spend consistently to see daily patterns here.</p>';
     return;
   }
 
@@ -1317,7 +1468,9 @@ function showHeatmapDayDetail(day, month, container) {
     detailEl.hidden = false;
     detailEl.querySelector("[data-close-detail]").addEventListener("click", () => {
       detailEl.hidden = true;
-      container.querySelectorAll(".heatmap__cell--selected").forEach((c) => c.classList.remove("heatmap__cell--selected"));
+      container
+        .querySelectorAll(".heatmap__cell--selected")
+        .forEach((c) => c.classList.remove("heatmap__cell--selected"));
     });
     return;
   }
@@ -1327,22 +1480,24 @@ function showHeatmapDayDetail(day, month, container) {
 
   let totalDebit = 0;
   let totalCredit = 0;
-  const txnRows = dayTxns.map((txn) => {
-    const t = normalizeType(txn.type);
-    const amt = Number(txn.amount);
-    if (t === "debit") totalDebit += amt;
-    else totalCredit += amt;
-    const amtClass = t === "credit" ? "positive" : "negative";
-    const sign = t === "credit" ? "+" : "-";
-    const desc = txn.description || txn.category || "Transaction";
-    return `
+  const txnRows = dayTxns
+    .map((txn) => {
+      const t = normalizeType(txn.type);
+      const amt = Number(txn.amount);
+      if (t === "debit") totalDebit += amt;
+      else totalCredit += amt;
+      const amtClass = t === "credit" ? "positive" : "negative";
+      const sign = t === "credit" ? "+" : "-";
+      const desc = txn.description || txn.category || "Transaction";
+      return `
       <div class="heatmap__detail-txn">
         <span class="heatmap__detail-txn-cat">${escapeHtml(txn.category || "—")}</span>
         <span class="heatmap__detail-txn-desc">${escapeHtml(desc)}</span>
         <span class="heatmap__detail-txn-amt ${amtClass}">${sign}${escapeHtml(formatMoney(amt))}</span>
       </div>
     `;
-  }).join("");
+    })
+    .join("");
 
   detailEl.innerHTML = `
     <div class="heatmap__detail-header">
@@ -1361,7 +1516,9 @@ function showHeatmapDayDetail(day, month, container) {
 
   detailEl.querySelector("[data-close-detail]").addEventListener("click", () => {
     detailEl.hidden = true;
-    container.querySelectorAll(".heatmap__cell--selected").forEach((c) => c.classList.remove("heatmap__cell--selected"));
+    container
+      .querySelectorAll(".heatmap__cell--selected")
+      .forEach((c) => c.classList.remove("heatmap__cell--selected"));
   });
 }
 
@@ -1393,7 +1550,8 @@ async function renderIncomeExpenseChart() {
   const ieChart = renderIncomeExpenseBar(ieData, formatMoney);
 
   if (!ieChart) {
-    container.innerHTML = '<p class="spending-analysis__placeholder">Track income and expenses to compare them over time.</p>';
+    container.innerHTML =
+      '<p class="spending-analysis__placeholder">Track income and expenses to compare them over time.</p>';
     return;
   }
 
@@ -1409,7 +1567,9 @@ async function renderSpendingAnalysis() {
   const month = getHeatmapMonthKey();
   const isCurrentMonth = month === currentMonthKey();
 
-  const monthDebits = visible.filter((item) => normalizeType(item.type) === "debit" && String(item.dateKey).startsWith(month));
+  const monthDebits = visible.filter(
+    (item) => normalizeType(item.type) === "debit" && String(item.dateKey).startsWith(month)
+  );
   const totalSpent = monthDebits.reduce((sum, item) => sum + Number(item.amount), 0);
   const txnCount = monthDebits.length;
 
@@ -1474,20 +1634,28 @@ async function renderInsights() {
   const insights = generateInsights(cachedExpenses, cachedAccounts, cachedBudgets, formatMoney);
 
   if (!insights.length) {
-    container.innerHTML = '<p class="empty-state">Add more transactions to see spending insights.</p>';
+    container.innerHTML = renderEmptyState("insights", "Add more transactions to see spending insights.");
     return;
   }
 
   const iconSvgs = {
-    "trend-up": '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
-    "trend-down": '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>',
-    "alert": '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
-    "calendar": '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
-    "streak": '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
-    "forecast": '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+    "trend-up":
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
+    "trend-down":
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>',
+    alert:
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    calendar:
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+    streak:
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+    forecast:
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
   };
 
-  container.innerHTML = insights.map((insight) => `
+  container.innerHTML = insights
+    .map(
+      (insight) => `
     <div class="insight-card insight-card--${escapeHtml(insight.type)}">
       <div class="insight-card__icon">
         ${iconSvgs[insight.icon] || iconSvgs["alert"]}
@@ -1497,7 +1665,9 @@ async function renderInsights() {
         <p class="insight-card__desc">${escapeHtml(insight.description)}</p>
       </div>
     </div>
-  `).join("");
+  `
+    )
+    .join("");
 }
 
 // ── Transaction Rendering ───────────────────────────────────────────────────
@@ -1568,6 +1738,7 @@ function renderTransactionItem(item) {
 
   const accountName = getAccountName(item.accountId || item.fromAccountId || item.toAccountId);
   const isCredit = type === "credit";
+  const catColor = getCategoryColor(item.category);
   return `
     <article class="history-item" data-id="${escapeHtml(item.id)}">
       <div class="history-main">
@@ -1580,6 +1751,7 @@ function renderTransactionItem(item) {
         <p>${escapeHtml(item.description || "")}</p>
         <div class="history-meta">
           <span>${escapeHtml(formatDate(item.dateKey))}</span>
+          ${item.category ? `<span class="category-tag"><span class="category-dot" style="background:${catColor}"></span>${escapeHtml(item.category)}</span>` : ""}
           ${accountName ? `<span class="account-tag">${escapeHtml(accountName)}</span>` : ""}
           <span class="sync-${escapeHtml(item.syncStatus)}">${escapeHtml(syncLabel)}</span>
           ${repeatBadge}
@@ -1614,10 +1786,14 @@ function renderHistory() {
 
     let matchesAccount = accountFilterVal === "all";
     if (!matchesAccount) {
-      matchesAccount = item.accountId === accountFilterVal || item.fromAccountId === accountFilterVal || item.toAccountId === accountFilterVal;
+      matchesAccount =
+        item.accountId === accountFilterVal ||
+        item.fromAccountId === accountFilterVal ||
+        item.toAccountId === accountFilterVal;
     }
 
-    const matchesSearch = !search ||
+    const matchesSearch =
+      !search ||
       (item.description || "").toLowerCase().includes(search) ||
       (item.category || "").toLowerCase().includes(search) ||
       (item.reason || "").toLowerCase().includes(search);
@@ -1645,7 +1821,7 @@ function renderHistory() {
   }
 
   if (!filtered.length) {
-    el.historyList.innerHTML = '<p class="empty-state">No matching records.</p>';
+    el.historyList.innerHTML = renderEmptyState("search", "No matching records found.");
     if (historyEndMarker) historyEndMarker.classList.add("hidden");
     return;
   }
@@ -1674,8 +1850,12 @@ function renderHistory() {
 
 // ── Sync State ──────────────────────────────────────────────────────────────
 function renderSyncState() {
-  const pendingTx = cachedExpenses.filter((item) => item.syncStatus === "pending" || item.syncStatus === "error").length;
-  const pendingAcct = cachedAccounts.filter((item) => item.syncStatus === "pending" || item.syncStatus === "error").length;
+  const pendingTx = cachedExpenses.filter(
+    (item) => item.syncStatus === "pending" || item.syncStatus === "error"
+  ).length;
+  const pendingAcct = cachedAccounts.filter(
+    (item) => item.syncStatus === "pending" || item.syncStatus === "error"
+  ).length;
   const pending = pendingTx + pendingAcct;
   el.syncBadge.textContent = isSyncing ? "Syncing..." : `${pending} pending`;
   el.syncBadge.classList.toggle("pending", pending > 0);
@@ -1739,37 +1919,61 @@ function startCloudListener(user) {
     const localMap = new Map(localExpenses.map((e) => [e.id, e]));
     const incoming = [];
     for (const cloudDoc of snapshot.docs) {
-      const remote = { id: cloudDoc.id, ...cloudDoc.data(), syncStatus: "synced", lastSyncError: "", syncedAt: new Date().toISOString() };
+      const remote = {
+        id: cloudDoc.id,
+        ...cloudDoc.data(),
+        syncStatus: "synced",
+        lastSyncError: "",
+        syncedAt: new Date().toISOString(),
+      };
       const local = localMap.get(remote.id);
       if (!local || local.syncStatus === "synced" || String(remote.updatedAt) >= String(local.updatedAt)) {
         incoming.push(remote);
       }
     }
-    if (incoming.length) { await bulkPutExpenses(incoming); await refreshUI(); }
+    if (incoming.length) {
+      await bulkPutExpenses(incoming);
+      await refreshUI();
+    }
   }
 
   const txQuery = query(collection(firestore, "users", user.uid, "transactions"), orderBy("occurredAt", "desc"));
   unsubList.push(
-    onSnapshot(txQuery, { includeMetadataChanges: true }, reconcileSnapshot, (error) => console.error("Cloud transactions listener error:", error))
+    onSnapshot(txQuery, { includeMetadataChanges: true }, reconcileSnapshot, (error) =>
+      console.error("Cloud transactions listener error:", error)
+    )
   );
 
   const expensesQuery = query(collection(firestore, "users", user.uid, "expenses"), orderBy("occurredAt", "desc"));
   unsubList.push(
-    onSnapshot(expensesQuery, { includeMetadataChanges: true }, reconcileSnapshot, (error) => console.error("Cloud expenses listener error:", error))
+    onSnapshot(expensesQuery, { includeMetadataChanges: true }, reconcileSnapshot, (error) =>
+      console.error("Cloud expenses listener error:", error)
+    )
   );
 
   const accountsQuery = query(collection(firestore, "users", user.uid, "accounts"), orderBy("updatedAt", "desc"));
   unsubList.push(
-    onSnapshot(accountsQuery, { includeMetadataChanges: true }, async (snapshot) => {
-      for (const cloudDoc of snapshot.docs) {
-        const remote = { id: cloudDoc.id, ...cloudDoc.data(), syncStatus: "synced", lastSyncError: "", syncedAt: new Date().toISOString() };
-        const local = await getAccount(remote.id);
-        if (!local || local.syncStatus === "synced" || String(remote.updatedAt) >= String(local.updatedAt)) {
-          await putAccount(remote);
+    onSnapshot(
+      accountsQuery,
+      { includeMetadataChanges: true },
+      async (snapshot) => {
+        for (const cloudDoc of snapshot.docs) {
+          const remote = {
+            id: cloudDoc.id,
+            ...cloudDoc.data(),
+            syncStatus: "synced",
+            lastSyncError: "",
+            syncedAt: new Date().toISOString(),
+          };
+          const local = await getAccount(remote.id);
+          if (!local || local.syncStatus === "synced" || String(remote.updatedAt) >= String(local.updatedAt)) {
+            await putAccount(remote);
+          }
         }
-      }
-      await refreshUI();
-    }, (error) => console.error("Cloud accounts listener error:", error))
+        await refreshUI();
+      },
+      (error) => console.error("Cloud accounts listener error:", error)
+    )
   );
 
   cloudUnsubscribe = () => unsubList.forEach((u) => u());
@@ -1917,44 +2121,82 @@ async function handleTransactionSubmit(event) {
   if (txType === "transfer") {
     const fromId = el.txFromAccount.value;
     const toId = el.txToAccount.value;
-    if (!fromId) { setFieldError(fromField, fromErr, "Select source account."); hasError = true; }
-    if (!toId) { setFieldError(toField, toErr, "Select destination account."); hasError = true; }
+    if (!fromId) {
+      setFieldError(fromField, fromErr, "Select source account.");
+      hasError = true;
+    }
+    if (!toId) {
+      setFieldError(toField, toErr, "Select destination account.");
+      hasError = true;
+    }
     if (hasError) return;
-    if (fromId === toId) { setFieldError(toField, toErr, "Source and destination cannot be the same."); return; }
+    if (fromId === toId) {
+      setFieldError(toField, toErr, "Source and destination cannot be the same.");
+      return;
+    }
 
     const fromBalance = getAccountBalance(fromId);
     if (amount > fromBalance) {
-      const ok = await showConfirm("Insufficient Balance", `Current balance: ${formatMoney(fromBalance)}. After: ${formatMoney(fromBalance - amount)}. Continue?`);
+      const ok = await showConfirm(
+        "Insufficient Balance",
+        `Current balance: ${formatMoney(fromBalance)}. After: ${formatMoney(fromBalance - amount)}. Continue?`
+      );
       if (!ok) return;
     }
 
     transaction = {
-      id: crypto.randomUUID(), type: "transfer", amount, accountId: null,
-      fromAccountId: fromId, toAccountId: toId, category: "Transfer", description, dateKey,
+      id: crypto.randomUUID(),
+      type: "transfer",
+      amount,
+      accountId: null,
+      fromAccountId: fromId,
+      toAccountId: toId,
+      category: "Transfer",
+      description,
+      dateKey,
       occurredAt: `${dateKey}T${new Date().toISOString().slice(11, 23)}Z`,
-      createdAt: now, updatedAt: now, deleted: false, syncStatus: "pending", lastSyncError: "",
+      createdAt: now,
+      updatedAt: now,
+      deleted: false,
+      syncStatus: "pending",
+      lastSyncError: "",
     };
     lastSelectedAccountId = fromId;
   } else {
     const accountId = el.txAccount.value;
-    if (!accountId) { setFieldError(acctGroup, acctErr, "Please select an account."); hasError = true; }
+    if (!accountId) {
+      setFieldError(acctGroup, acctErr, "Please select an account.");
+      hasError = true;
+    }
     if (hasError) return;
 
     if (txType === "debit") {
       const currentBalance = getAccountBalance(accountId);
       if (amount > currentBalance) {
-        const ok = await showConfirm("Insufficient Balance", `Current: ${formatMoney(currentBalance)}. After: ${formatMoney(currentBalance - amount)}. Continue?`);
+        const ok = await showConfirm(
+          "Insufficient Balance",
+          `Current: ${formatMoney(currentBalance)}. After: ${formatMoney(currentBalance - amount)}. Continue?`
+        );
         if (!ok) return;
       }
     }
 
     transaction = {
-      id: crypto.randomUUID(), type: txType, amount, accountId,
+      id: crypto.randomUUID(),
+      type: txType,
+      amount,
+      accountId,
       fromAccountId: txType === "debit" ? accountId : null,
       toAccountId: txType === "credit" ? accountId : null,
-      category: txType === "transfer" ? "Transfer" : category, description, dateKey,
+      category: txType === "transfer" ? "Transfer" : category,
+      description,
+      dateKey,
       occurredAt: `${dateKey}T${new Date().toISOString().slice(11, 23)}Z`,
-      createdAt: now, updatedAt: now, deleted: false, syncStatus: "pending", lastSyncError: "",
+      createdAt: now,
+      updatedAt: now,
+      deleted: false,
+      syncStatus: "pending",
+      lastSyncError: "",
     };
     lastSelectedAccountId = accountId;
   }
@@ -1995,14 +2237,23 @@ async function handleTransactionSubmit(event) {
 // ── Quick Add ───────────────────────────────────────────────────────────────
 async function handleQuickAdd() {
   const text = el.quickAddInput.value.trim();
-  if (!text) { showToast("Type something like: Lunch 150 UPI"); return; }
+  if (!text) {
+    showToast("Type something like: Lunch 150 UPI", "warning");
+    return;
+  }
 
   const parsed = parseExpense(text);
-  if (!parsed.valid) { showToast(parsed.error); return; }
+  if (!parsed.valid) {
+    showToast(parsed.error, "error");
+    return;
+  }
 
   const activeAccounts = cachedAccounts.filter((a) => a.archived !== true);
   const accountId = defaultAccountId || (activeAccounts.length ? activeAccounts[0].id : null);
-  if (!accountId) { showToast("Create an account first."); return; }
+  if (!accountId) {
+    showToast("Create an account first.", "warning");
+    return;
+  }
 
   const now = new Date().toISOString();
   const txType = parsed.type === "income" ? "credit" : "debit";
@@ -2032,7 +2283,7 @@ async function handleQuickAdd() {
   await refreshUI();
   haptic("success");
   showSuccessAnimation(document.querySelector(".add-panel"));
-  showToast(`${txType === "credit" ? "Credit" : "Debit"} of ${formatMoney(parsed.amount)} saved.`);
+  showToast(`${txType === "credit" ? "Credit" : "Debit"} of ${formatMoney(parsed.amount)} saved.`, "success");
   syncPendingRecords();
 }
 
@@ -2040,10 +2291,18 @@ async function handleQuickAdd() {
 function calculateNextOccurrence(fromDate, frequency) {
   const date = new Date(fromDate + "T00:00:00");
   switch (frequency) {
-    case "daily": date.setDate(date.getDate() + 1); break;
-    case "weekly": date.setDate(date.getDate() + 7); break;
-    case "monthly": date.setMonth(date.getMonth() + 1); break;
-    case "yearly": date.setFullYear(date.getFullYear() + 1); break;
+    case "daily":
+      date.setDate(date.getDate() + 1);
+      break;
+    case "weekly":
+      date.setDate(date.getDate() + 7);
+      break;
+    case "monthly":
+      date.setMonth(date.getMonth() + 1);
+      break;
+    case "yearly":
+      date.setFullYear(date.getFullYear() + 1);
+      break;
   }
   return localDateKey(date);
 }
@@ -2080,7 +2339,10 @@ async function processRecurringTransactions() {
 async function editExpense(id) {
   const existing = await getExpense(id);
   if (!existing) return;
-  if (normalizeType(existing.type) === "adjustment") { openEditAdjustmentModal(existing); return; }
+  if (normalizeType(existing.type) === "adjustment") {
+    openEditAdjustmentModal(existing);
+    return;
+  }
   openEditTransactionModal(existing);
 }
 
@@ -2107,7 +2369,12 @@ function openEditTransactionModal(tx) {
   [editAccount, editFromAccount, editToAccount].forEach((sel) => {
     if (!sel) return;
     sel.innerHTML = '<option value="">Select account</option>';
-    for (const a of activeAccounts) { const opt = document.createElement("option"); opt.value = a.id; opt.textContent = a.name; sel.appendChild(opt); }
+    for (const a of activeAccounts) {
+      const opt = document.createElement("option");
+      opt.value = a.id;
+      opt.textContent = a.name;
+      sel.appendChild(opt);
+    }
   });
 
   if (type === "transfer") {
@@ -2167,8 +2434,14 @@ async function saveEditedTransaction() {
   const category = editCategory ? editCategory.value : existing.category;
   const dateKey = editDate ? editDate.value : existing.dateKey;
 
-  if (!amount || amount <= 0) { showMessage(editMsg, "Amount must be greater than zero.", true); return; }
-  if (!description) { showMessage(editMsg, "Description is required.", true); return; }
+  if (!amount || amount <= 0) {
+    showMessage(editMsg, "Amount must be greater than zero.", true);
+    return;
+  }
+  if (!description) {
+    showMessage(editMsg, "Description is required.", true);
+    return;
+  }
 
   const now = new Date().toISOString();
   let updated;
@@ -2176,13 +2449,50 @@ async function saveEditedTransaction() {
   if (type === "transfer") {
     const fromId = editFromAccount ? editFromAccount.value : "";
     const toId = editToAccount ? editToAccount.value : "";
-    if (!fromId || !toId) { showMessage(editMsg, "Both accounts are required.", true); return; }
-    if (fromId === toId) { showMessage(editMsg, "Source and destination cannot be the same.", true); return; }
-    updated = { ...existing, type: "transfer", amount, accountId: null, fromAccountId: fromId, toAccountId: toId, category: "Transfer", description, dateKey, occurredAt: `${dateKey}T${new Date().toISOString().slice(11, 23)}Z`, updatedAt: now, syncStatus: "pending", lastSyncError: "" };
+    if (!fromId || !toId) {
+      showMessage(editMsg, "Both accounts are required.", true);
+      return;
+    }
+    if (fromId === toId) {
+      showMessage(editMsg, "Source and destination cannot be the same.", true);
+      return;
+    }
+    updated = {
+      ...existing,
+      type: "transfer",
+      amount,
+      accountId: null,
+      fromAccountId: fromId,
+      toAccountId: toId,
+      category: "Transfer",
+      description,
+      dateKey,
+      occurredAt: `${dateKey}T${new Date().toISOString().slice(11, 23)}Z`,
+      updatedAt: now,
+      syncStatus: "pending",
+      lastSyncError: "",
+    };
   } else {
     const accountId = editAccount ? editAccount.value : "";
-    if (!accountId) { showMessage(editMsg, "Please select an account.", true); return; }
-    updated = { ...existing, type, amount, accountId, fromAccountId: type === "debit" ? accountId : null, toAccountId: type === "credit" ? accountId : null, category, description, dateKey, occurredAt: `${dateKey}T${new Date().toISOString().slice(11, 23)}Z`, updatedAt: now, syncStatus: "pending", lastSyncError: "" };
+    if (!accountId) {
+      showMessage(editMsg, "Please select an account.", true);
+      return;
+    }
+    updated = {
+      ...existing,
+      type,
+      amount,
+      accountId,
+      fromAccountId: type === "debit" ? accountId : null,
+      toAccountId: type === "credit" ? accountId : null,
+      category,
+      description,
+      dateKey,
+      occurredAt: `${dateKey}T${new Date().toISOString().slice(11, 23)}Z`,
+      updatedAt: now,
+      syncStatus: "pending",
+      lastSyncError: "",
+    };
   }
 
   await putExpense(updated);
@@ -2196,29 +2506,44 @@ async function saveEditedTransaction() {
     openModal(el.accountActivityModal);
   }
   syncPendingRecords();
-  showToast("Transaction updated.");
+  showToast("Transaction updated.", "success");
 }
 
 async function deleteExpense(id) {
   const existing = await getExpense(id);
-  if (!existing) return;
+  if (!existing) return false;
   const confirmed = await showConfirm("Delete Transaction", `Delete "${existing.description || "this transaction"}"?`);
-  if (!confirmed) return;
+  if (!confirmed) return false;
 
-  await putExpense({ ...existing, deleted: true, updatedAt: new Date().toISOString(), syncStatus: "pending", lastSyncError: "" });
+  await putExpense({
+    ...existing,
+    deleted: true,
+    updatedAt: new Date().toISOString(),
+    syncStatus: "pending",
+    lastSyncError: "",
+  });
   logAudit("expense", id, "delete", existing, null);
   await refreshUI();
   syncPendingRecords();
+  return true;
 }
 
 // ── Accounts Rendering ──────────────────────────────────────────────────────
 function renderAccounts() {
   if (!el.accountsList) return;
-  const TYPE_LABELS = { cash: "Cash", bank: "Bank Account", savings: "Savings", credit: "Credit Card", wallet: "Wallet", other: "Other" };
+  const TYPE_LABELS = {
+    cash: "Cash",
+    bank: "Bank Account",
+    savings: "Savings",
+    credit: "Credit Card",
+    wallet: "Wallet",
+    other: "Other",
+  };
 
   const renderCard = (account) => {
     const balance = getAccountBalance(account.id);
-    const syncLabel = account.syncStatus === "synced" ? "Synced" : account.syncStatus === "error" ? "Sync failed" : "Pending";
+    const syncLabel =
+      account.syncStatus === "synced" ? "Synced" : account.syncStatus === "error" ? "Sync failed" : "Pending";
     const typeLabel = TYPE_LABELS[account.type] || account.type || "";
     const balanceClass = balance < 0 ? "negative-balance" : "";
     return `
@@ -2255,11 +2580,15 @@ function renderAccounts() {
   if (netWorthValue) {
     const totalBalance = active.reduce((sum, a) => sum + getAccountBalance(a.id), 0);
     netWorthValue.textContent = formatMoney(totalBalance);
-    if (netWorthAccounts) netWorthAccounts.textContent = `across ${active.length} account${active.length !== 1 ? "s" : ""}`;
+    if (netWorthAccounts)
+      netWorthAccounts.textContent = `across ${active.length} account${active.length !== 1 ? "s" : ""}`;
   }
 
   if (!cachedAccounts.length) {
-    el.accountsList.innerHTML = '<p class="empty-state">No accounts yet. Add an account to track balances.</p>';
+    el.accountsList.innerHTML = renderEmptyState(
+      "accounts",
+      "No accounts yet. Tap <strong>Add Account</strong> to start tracking."
+    );
     return;
   }
 
@@ -2274,14 +2603,25 @@ function renderAccounts() {
 function renderAdjustmentsSummary() {
   if (!el.adjustmentsSummary) return;
   const adjustments = cachedExpenses.filter((t) => normalizeType(t.type) === "adjustment" && !t.deleted);
-  if (!adjustments.length) { el.adjustmentsSummary.classList.add("hidden"); return; }
+  if (!adjustments.length) {
+    el.adjustmentsSummary.classList.add("hidden");
+    return;
+  }
   el.adjustmentsSummary.classList.remove("hidden");
 
-  let totalPositive = 0, totalNegative = 0, positiveCount = 0, negativeCount = 0;
+  let totalPositive = 0,
+    totalNegative = 0,
+    positiveCount = 0,
+    negativeCount = 0;
   for (const adj of adjustments) {
     const effect = Number(adj.balanceEffect || 0);
-    if (effect > 0) { totalPositive += effect; positiveCount++; }
-    else if (effect < 0) { totalNegative += Math.abs(effect); negativeCount++; }
+    if (effect > 0) {
+      totalPositive += effect;
+      positiveCount++;
+    } else if (effect < 0) {
+      totalNegative += Math.abs(effect);
+      negativeCount++;
+    }
   }
 
   el.adjustmentsSummaryContent.innerHTML = `
@@ -2314,9 +2654,15 @@ function trapFocus(modal) {
   modal._trapHandler = (e) => {
     if (e.key !== "Tab") return;
     if (e.shiftKey) {
-      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+      if (document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
     } else {
-      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+      if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
   };
   modal.addEventListener("keydown", modal._trapHandler);
@@ -2325,7 +2671,10 @@ function trapFocus(modal) {
 let closingFromPopstate = false;
 
 function closeModal(modalEl) {
-  if (modalEl._trapHandler) { modalEl.removeEventListener("keydown", modalEl._trapHandler); modalEl._trapHandler = null; }
+  if (modalEl._trapHandler) {
+    modalEl.removeEventListener("keydown", modalEl._trapHandler);
+    modalEl._trapHandler = null;
+  }
   modalEl.classList.add("hidden");
   document.body.classList.remove("modal-open");
   if (modalEl === el.accountActivityModal) {
@@ -2374,7 +2723,10 @@ async function saveAccount() {
   const nameErr = document.getElementById("accountNameError");
   clearFieldError(nameField, nameErr);
   showMessage(el.accountModalMessage, "");
-  if (!name) { setFieldError(nameField, nameErr, "Account name is required."); return; }
+  if (!name) {
+    setFieldError(nameField, nameErr, "Account name is required.");
+    return;
+  }
 
   const now = new Date().toISOString();
   const oldAccount = editingAccountId ? cachedAccounts.find((a) => a.id === editingAccountId) : null;
@@ -2397,7 +2749,7 @@ async function saveAccount() {
   closeModal(el.accountModal);
   await refreshUI();
   syncPendingRecords();
-  showToast(`Account "${name}" ${editingAccountId ? "updated" : "created"}.`);
+  showToast(`Account "${name}" ${editingAccountId ? "updated" : "created"}.`, "success");
 
   // Close onboarding if active
   if (el.onboardingOverlay && !el.onboardingOverlay.classList.contains("hidden")) {
@@ -2439,7 +2791,10 @@ function openEditAdjustmentModal(adjustment) {
 
 async function saveBalanceAdjustment() {
   const actualStr = el.editBalanceActual.value.trim();
-  if (actualStr === "" || !Number.isFinite(Number(actualStr))) { showMessage(el.editBalanceMessage, "Enter a valid amount.", true); return; }
+  if (actualStr === "" || !Number.isFinite(Number(actualStr))) {
+    showMessage(el.editBalanceMessage, "Enter a valid amount.", true);
+    return;
+  }
 
   const actualBalance = Number(actualStr);
   const accountId = adjustmentTargetAccountId;
@@ -2455,21 +2810,41 @@ async function saveBalanceAdjustment() {
   }
 
   const balanceEffect = actualBalance - previousBalance;
-  if (balanceEffect === 0) { showMessage(el.editBalanceMessage, "No adjustment needed.", true); return; }
+  if (balanceEffect === 0) {
+    showMessage(el.editBalanceMessage, "No adjustment needed.", true);
+    return;
+  }
 
   const reason = el.editBalanceReason.value.trim();
   const dateKey = el.editBalanceDate.value || localDateKey();
   const now = new Date().toISOString();
   let createdAt = now;
-  if (editingAdjustmentId) { const existing = await getExpense(editingAdjustmentId); createdAt = existing?.createdAt || now; }
+  if (editingAdjustmentId) {
+    const existing = await getExpense(editingAdjustmentId);
+    createdAt = existing?.createdAt || now;
+  }
 
   const adjustment = {
     id: editingAdjustmentId || crypto.randomUUID(),
-    type: "adjustment", adjustmentType: balanceEffect > 0 ? "positive" : "negative",
-    amount: Math.abs(balanceEffect), accountId, fromAccountId: null, toAccountId: null,
-    previousBalance, actualBalance, balanceEffect, description: "Balance correction", reason,
-    category: "Adjustment", dateKey, occurredAt: `${dateKey}T00:00:00.000Z`,
-    createdAt, updatedAt: now, deleted: false, syncStatus: "pending", lastSyncError: "",
+    type: "adjustment",
+    adjustmentType: balanceEffect > 0 ? "positive" : "negative",
+    amount: Math.abs(balanceEffect),
+    accountId,
+    fromAccountId: null,
+    toAccountId: null,
+    previousBalance,
+    actualBalance,
+    balanceEffect,
+    description: "Balance correction",
+    reason,
+    category: "Adjustment",
+    dateKey,
+    occurredAt: `${dateKey}T00:00:00.000Z`,
+    createdAt,
+    updatedAt: now,
+    deleted: false,
+    syncStatus: "pending",
+    lastSyncError: "",
   };
 
   await putExpense(adjustment);
@@ -2489,7 +2864,9 @@ async function openEditOpeningBalanceModal(accountId) {
   el.editOpeningCurrentAmt.textContent = formatMoney(account.openingBalance || 0);
   el.editOpeningNewBalance.value = String(account.openingBalance || 0);
   showMessage(el.editOpeningMessage, "");
-  const hasTx = cachedExpenses.some((t) => (t.accountId === accountId || t.fromAccountId === accountId || t.toAccountId === accountId) && !t.deleted);
+  const hasTx = cachedExpenses.some(
+    (t) => (t.accountId === accountId || t.fromAccountId === accountId || t.toAccountId === accountId) && !t.deleted
+  );
   el.editOpeningWarning.classList.toggle("hidden", !hasTx);
   openModal(el.editOpeningBalanceModal);
   el.editOpeningNewBalance.select();
@@ -2497,7 +2874,10 @@ async function openEditOpeningBalanceModal(accountId) {
 
 async function saveOpeningBalance() {
   const newBalStr = el.editOpeningNewBalance.value.trim();
-  if (newBalStr === "" || !Number.isFinite(Number(newBalStr))) { showMessage(el.editOpeningMessage, "Enter a valid balance.", true); return; }
+  if (newBalStr === "" || !Number.isFinite(Number(newBalStr))) {
+    showMessage(el.editOpeningMessage, "Enter a valid balance.", true);
+    return;
+  }
 
   const accountId = adjustmentTargetAccountId;
   const account = cachedAccounts.find((a) => a.id === accountId);
@@ -2505,7 +2885,13 @@ async function saveOpeningBalance() {
   const newBalance = Number(newBalStr);
   const now = new Date().toISOString();
 
-  await putAccount({ ...account, openingBalance: newBalance, updatedAt: now, syncStatus: "pending", lastSyncError: "" });
+  await putAccount({
+    ...account,
+    openingBalance: newBalance,
+    updatedAt: now,
+    syncStatus: "pending",
+    lastSyncError: "",
+  });
   closeModal(el.editOpeningBalanceModal);
   await refreshUI();
   syncPendingRecords();
@@ -2539,7 +2925,10 @@ function openAccountActivityModal(accountId) {
 function renderAccountActivity(accountId) {
   if (!el.accountActivityList) return;
   const account = cachedAccounts.find((a) => a.id === accountId);
-  const transactions = cachedExpenses.filter((t) => !t.deleted && (t.accountId === accountId || t.fromAccountId === accountId || t.toAccountId === accountId))
+  const transactions = cachedExpenses
+    .filter(
+      (t) => !t.deleted && (t.accountId === accountId || t.fromAccountId === accountId || t.toAccountId === accountId)
+    )
     .sort((a, b) => String(a.occurredAt).localeCompare(String(b.occurredAt)));
 
   if (!transactions.length) {
@@ -2554,75 +2943,88 @@ function renderAccountActivity(accountId) {
 
   const balanceMap = calculateBalanceAfterEachTransaction(account, cachedExpenses);
 
-  const dailyTotals = new Map();
+  // Group transactions by date
+  const dayGroups = [];
+  let currentGroup = null;
   for (const item of transactions) {
-    const dk = item.dateKey;
-    if (!dailyTotals.has(dk)) dailyTotals.set(dk, { debit: 0, credit: 0 });
+    if (!currentGroup || item.dateKey !== currentGroup.dateKey) {
+      currentGroup = { dateKey: item.dateKey, items: [], debit: 0, credit: 0 };
+      dayGroups.push(currentGroup);
+    }
+    currentGroup.items.push(item);
     const t = normalizeType(item.type);
-    if (t === "debit") dailyTotals.get(dk).debit += Number(item.amount);
-    else if (t === "credit") dailyTotals.get(dk).credit += Number(item.amount);
+    if (t === "debit") currentGroup.debit += Number(item.amount);
+    else if (t === "credit") currentGroup.credit += Number(item.amount);
   }
 
   let html = "";
-  let lastDateKey = "";
 
-  for (const item of transactions) {
-    if (item.dateKey !== lastDateKey) {
-      lastDateKey = item.dateKey;
-      const dt = dailyTotals.get(item.dateKey) || { debit: 0, credit: 0 };
+  for (const group of dayGroups) {
+    html += `<div class="chat-date-divider"><span>${escapeHtml(formatDateGroup(group.dateKey))}</span></div>`;
+
+    for (const item of group.items) {
+      const type = normalizeType(item.type);
+      const balanceAfter = balanceMap.get(item.id);
+      const balanceStr = balanceAfter != null ? formatMoney(balanceAfter) : "";
+
+      if (type === "adjustment") {
+        const effect = Number(item.balanceEffect || 0);
+        html += `
+          <div class="chat-bubble chat-bubble--adjustment">
+            Balance corrected ${effect >= 0 ? "+" : ""}${escapeHtml(formatMoney(effect))}
+            ${item.reason ? ` &mdash; ${escapeHtml(item.reason)}` : ""}
+          </div>
+        `;
+        continue;
+      }
+
+      if (type === "transfer") {
+        const fromName = getAccountName(item.fromAccountId);
+        const toName = getAccountName(item.toAccountId);
+        const direction = item.fromAccountId === accountId ? "out" : "in";
+        html += `
+          <div class="chat-bubble chat-bubble--transfer">
+            Transfer ${escapeHtml(formatMoney(item.amount))} ${direction === "out" ? `to ${escapeHtml(toName)}` : `from ${escapeHtml(fromName)}`}
+            ${item.description ? ` &mdash; ${escapeHtml(item.description)}` : ""}
+          </div>
+        `;
+        continue;
+      }
+
+      const isDebit = type === "debit";
+      const bubbleClass = isDebit ? "chat-bubble--debit" : "chat-bubble--credit";
+      const badgeClass = isDebit ? "chat-bubble__type-badge--debit" : "chat-bubble__type-badge--credit";
+      const sign = isDebit ? "-" : "+";
+      const typeLabel = isDebit ? "DEBIT" : "CREDIT";
+
+      html += `
+        <div class="chat-bubble ${bubbleClass}" data-id="${escapeHtml(item.id)}" data-searchtext="${escapeHtml((item.description || "").toLowerCase() + " " + (item.category || "").toLowerCase() + " " + item.amount)}">
+          <span class="chat-bubble__amount">${sign}${escapeHtml(formatMoney(item.amount))}</span>
+          <span class="chat-bubble__desc">${escapeHtml(item.description || item.category || "")}</span>
+          <div class="chat-bubble__meta">
+            <span class="chat-bubble__type-badge ${badgeClass}">${typeLabel}</span>
+            <span>${escapeHtml(item.category || "")}</span>
+            <span>${escapeHtml(new Date(item.occurredAt || item.dateKey).toLocaleTimeString(appSettings.locale, { hour: "2-digit", minute: "2-digit" }))}</span>
+            ${balanceStr ? `<span class="chat-bubble__balance">Bal: ${escapeHtml(balanceStr)}</span>` : ""}
+          </div>
+        </div>
+      `;
+    }
+
+    // Day total at bottom of each group
+    if (group.debit > 0 || group.credit > 0) {
       const parts = [];
-      if (dt.debit > 0) parts.push(`<span class="day-total__debit">-${escapeHtml(formatMoney(dt.debit))}</span>`);
-      if (dt.credit > 0) parts.push(`<span class="day-total__credit">+${escapeHtml(formatMoney(dt.credit))}</span>`);
-      const totalLine = parts.length ? `<div class="chat-day-total">${parts.join('<span class="day-total__sep">&middot;</span>')}</div>` : "";
-      html += `<div class="chat-date-divider"><span>${escapeHtml(formatDateGroup(item.dateKey))}</span></div>${totalLine}`;
+      if (group.debit > 0)
+        parts.push(`<span class="day-total__debit">Spent: -${escapeHtml(formatMoney(group.debit))}</span>`);
+      if (group.credit > 0)
+        parts.push(`<span class="day-total__credit">Received: +${escapeHtml(formatMoney(group.credit))}</span>`);
+      const net = group.credit - group.debit;
+      const netClass = net >= 0 ? "day-total__credit" : "day-total__debit";
+      parts.push(
+        `<span class="${netClass}">Net: ${net >= 0 ? "+" : ""}${escapeHtml(formatMoney(Math.abs(net)))}</span>`
+      );
+      html += `<div class="chat-day-total">${parts.join('<span class="day-total__sep">&middot;</span>')}</div>`;
     }
-
-    const type = normalizeType(item.type);
-    const balanceAfter = balanceMap.get(item.id);
-    const balanceStr = balanceAfter != null ? formatMoney(balanceAfter) : "";
-
-    if (type === "adjustment") {
-      const effect = Number(item.balanceEffect || 0);
-      html += `
-        <div class="chat-bubble chat-bubble--adjustment">
-          Balance corrected ${effect >= 0 ? "+" : ""}${escapeHtml(formatMoney(effect))}
-          ${item.reason ? ` &mdash; ${escapeHtml(item.reason)}` : ""}
-        </div>
-      `;
-      continue;
-    }
-
-    if (type === "transfer") {
-      const fromName = getAccountName(item.fromAccountId);
-      const toName = getAccountName(item.toAccountId);
-      const direction = item.fromAccountId === accountId ? "out" : "in";
-      html += `
-        <div class="chat-bubble chat-bubble--transfer">
-          Transfer ${escapeHtml(formatMoney(item.amount))} ${direction === "out" ? `to ${escapeHtml(toName)}` : `from ${escapeHtml(fromName)}`}
-          ${item.description ? ` &mdash; ${escapeHtml(item.description)}` : ""}
-        </div>
-      `;
-      continue;
-    }
-
-    const isDebit = type === "debit";
-    const bubbleClass = isDebit ? "chat-bubble--debit" : "chat-bubble--credit";
-    const badgeClass = isDebit ? "chat-bubble__type-badge--debit" : "chat-bubble__type-badge--credit";
-    const sign = isDebit ? "-" : "+";
-    const typeLabel = isDebit ? "DEBIT" : "CREDIT";
-
-    html += `
-      <div class="chat-bubble ${bubbleClass}" data-id="${escapeHtml(item.id)}" data-searchtext="${escapeHtml((item.description || "").toLowerCase() + " " + (item.category || "").toLowerCase() + " " + item.amount)}">
-        <span class="chat-bubble__amount">${sign}${escapeHtml(formatMoney(item.amount))}</span>
-        <span class="chat-bubble__desc">${escapeHtml(item.description || item.category || "")}</span>
-        <div class="chat-bubble__meta">
-          <span class="chat-bubble__type-badge ${badgeClass}">${typeLabel}</span>
-          <span>${escapeHtml(item.category || "")}</span>
-          <span>${escapeHtml(new Date(item.occurredAt || item.dateKey).toLocaleTimeString(appSettings.locale, { hour: "2-digit", minute: "2-digit" }))}</span>
-          ${balanceStr ? `<span class="chat-bubble__balance">Bal: ${escapeHtml(balanceStr)}</span>` : ""}
-        </div>
-      </div>
-    `;
   }
 
   el.accountActivityList.innerHTML = html;
@@ -2645,7 +3047,6 @@ function updateChatTypeIndicator() {
   });
 }
 
-
 async function handleChatSend() {
   const chatInput = document.querySelector("#chatInput");
   if (!chatInput) return;
@@ -2656,13 +3057,19 @@ async function handleChatSend() {
   if (!accountId) return;
 
   // Multi-line support: split by newlines, parse each line
-  const lines = rawValue.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = rawValue
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
   const transactions = [];
   const errors = [];
 
   for (const line of lines) {
     const parsed = parseExpense(line);
-    if (!parsed.valid) { errors.push(line); continue; }
+    if (!parsed.valid) {
+      errors.push(line);
+      continue;
+    }
 
     let txType;
     if (chatForceType) {
@@ -2701,7 +3108,10 @@ async function handleChatSend() {
   if (totalDebit > 0) {
     const currentBalance = getAccountBalance(accountId);
     if (totalDebit > currentBalance) {
-      const ok = await showConfirm("Insufficient Balance", `Total debit: ${formatMoney(totalDebit)}. Current: ${formatMoney(currentBalance)}. Continue?`);
+      const ok = await showConfirm(
+        "Insufficient Balance",
+        `Total debit: ${formatMoney(totalDebit)}. Current: ${formatMoney(currentBalance)}. Continue?`
+      );
       if (!ok) return;
     }
   }
@@ -2729,9 +3139,10 @@ async function handleChatSend() {
 
   // Undo toast
   const totalAmount = transactions.reduce((s, t) => s + t.amount, 0);
-  const msg = transactions.length > 1
-    ? `${transactions.length} entries added • Total: ${formatMoney(totalAmount)}`
-    : `${transactions[0].type === "credit" ? "Credit" : "Debit"}: ${formatMoney(transactions[0].amount)}`;
+  const msg =
+    transactions.length > 1
+      ? `${transactions.length} entries added • Total: ${formatMoney(totalAmount)}`
+      : `${transactions[0].type === "credit" ? "Credit" : "Debit"}: ${formatMoney(transactions[0].amount)}`;
   showUndoToast(msg, transactions);
 
   if (errors.length) {
@@ -2744,7 +3155,10 @@ async function handleChatSend() {
 
 function showUndoToast(message, transactions) {
   const toast = el.toast;
-  if (!toast) { showToast(message); return; }
+  if (!toast) {
+    showToast(message);
+    return;
+  }
 
   if (undoTimeout) clearTimeout(undoTimeout);
   clearTimeout(showToast.timer);
@@ -2760,22 +3174,26 @@ function showUndoToast(message, transactions) {
 
   const undoBtn = toast.querySelector("#undoBtn");
   if (undoBtn) {
-    undoBtn.addEventListener("click", async () => {
-      clearTimeout(undoTimeout);
-      for (const tx of undoTransactions) {
-        await putExpense({ ...tx, deleted: true, updatedAt: new Date().toISOString(), syncStatus: "pending" });
-        logAudit("expense", tx.id, "delete", tx, null);
-      }
-      undoTransactions = [];
-      toast.classList.add("hidden");
-      await refreshUI();
-      if (activityViewAccountId) {
-        renderAccountActivity(activityViewAccountId);
-        const bal = getAccountBalance(activityViewAccountId);
-        el.accountActivityBalance.textContent = formatMoney(bal);
-      }
-      showToast("Undone!");
-    }, { once: true });
+    undoBtn.addEventListener(
+      "click",
+      async () => {
+        clearTimeout(undoTimeout);
+        for (const tx of undoTransactions) {
+          await putExpense({ ...tx, deleted: true, updatedAt: new Date().toISOString(), syncStatus: "pending" });
+          logAudit("expense", tx.id, "delete", tx, null);
+        }
+        undoTransactions = [];
+        toast.classList.add("hidden");
+        await refreshUI();
+        if (activityViewAccountId) {
+          renderAccountActivity(activityViewAccountId);
+          const bal = getAccountBalance(activityViewAccountId);
+          el.accountActivityBalance.textContent = formatMoney(bal);
+        }
+        showToast("Undone!");
+      },
+      { once: true }
+    );
   }
 
   undoTimeout = setTimeout(() => {
@@ -2787,7 +3205,10 @@ function showUndoToast(message, transactions) {
 
 function hideChatPreview() {
   const preview = document.querySelector("#chatParsePreview");
-  if (preview) { preview.classList.add("hidden"); preview.innerHTML = ""; }
+  if (preview) {
+    preview.classList.add("hidden");
+    preview.innerHTML = "";
+  }
 }
 
 function updateChatParsePreview(value) {
@@ -2795,12 +3216,23 @@ function updateChatParsePreview(value) {
   if (!preview) return;
 
   const rawValue = value.trim();
-  if (!rawValue) { preview.classList.add("hidden"); preview.innerHTML = ""; return; }
+  if (!rawValue) {
+    preview.classList.add("hidden");
+    preview.innerHTML = "";
+    return;
+  }
 
-  const lines = rawValue.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = rawValue
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
   const results = lines.map((line) => parseExpense(line)).filter((r) => r.valid);
 
-  if (results.length === 0) { preview.classList.add("hidden"); preview.innerHTML = ""; return; }
+  if (results.length === 0) {
+    preview.classList.add("hidden");
+    preview.innerHTML = "";
+    return;
+  }
 
   preview.classList.remove("hidden");
 
@@ -2839,7 +3271,10 @@ async function saveBudget() {
   const amountErr = document.getElementById("budgetAmountError");
   clearFieldError(amountField, amountErr);
   showMessage(el.budgetModalMessage, "");
-  if (!amount || amount <= 0) { setFieldError(amountField, amountErr, "Enter a valid budget amount."); return; }
+  if (!amount || amount <= 0) {
+    setFieldError(amountField, amountErr, "Enter a valid budget amount.");
+    return;
+  }
 
   const existing = cachedBudgets.find((b) => b.category === category);
   const budget = {
@@ -2881,14 +3316,20 @@ function downloadFile(filename, content, mimeType) {
   URL.revokeObjectURL(url);
 }
 
-function csvCell(value) { return `"${String(value ?? "").replaceAll('"', '""')}"`; }
+function csvCell(value) {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
 
 function exportCsv() {
   const accountMap = new Map(cachedAccounts.map((a) => [a.id, a.name]));
   const rows = [
     ["Date", "Type", "Amount", "Category", "Description", "Account", "From Account", "To Account", "Sync Status"],
     ...getVisibleExpenses().map((item) => [
-      item.dateKey, item.type, item.amount, item.category || "", item.description || "",
+      item.dateKey,
+      item.type,
+      item.amount,
+      item.category || "",
+      item.description || "",
       item.accountId ? accountMap.get(item.accountId) || item.accountId : "",
       item.fromAccountId ? accountMap.get(item.fromAccountId) || item.fromAccountId : "",
       item.toAccountId ? accountMap.get(item.toAccountId) || item.toAccountId : "",
@@ -2900,7 +3341,14 @@ function exportCsv() {
 }
 
 function exportJson() {
-  const backup = { exportedAt: new Date().toISOString(), version: 3, accounts: cachedAccounts, transactions: cachedExpenses, budgets: cachedBudgets, recurring: cachedRecurring };
+  const backup = {
+    exportedAt: new Date().toISOString(),
+    version: 3,
+    accounts: cachedAccounts,
+    transactions: cachedExpenses,
+    budgets: cachedBudgets,
+    recurring: cachedRecurring,
+  };
   downloadFile(`expenses-backup-${localDateKey()}.json`, JSON.stringify(backup, null, 2), "application/json");
 }
 
@@ -2909,7 +3357,8 @@ function validateTransaction(item) {
   if (typeof item.amount !== "number" && typeof item.amount !== "string") return false;
   const amt = Number(item.amount);
   if (isNaN(amt) || amt < 0 || amt > 100000000) return false;
-  if (!item.type || !["debit", "credit", "transfer", "adjustment", "income", "expense"].includes(String(item.type))) return false;
+  if (!item.type || !["debit", "credit", "transfer", "adjustment", "income", "expense"].includes(String(item.type)))
+    return false;
   if (!item.dateKey || !/^\d{4}-\d{2}-\d{2}/.test(String(item.dateKey))) return false;
   return true;
 }
@@ -2926,23 +3375,48 @@ async function importJson(file) {
     const text = await file.text();
     const data = JSON.parse(text);
     let transactions, accounts;
-    if (Array.isArray(data)) { transactions = data; accounts = []; }
-    else { transactions = data.transactions || []; accounts = data.accounts || []; }
+    if (Array.isArray(data)) {
+      transactions = data;
+      accounts = [];
+    } else {
+      transactions = data.transactions || [];
+      accounts = data.accounts || [];
+    }
 
     const validTransactions = transactions.filter(validateTransaction);
     const validAccounts = accounts.filter(validateAccount);
     const skipped = transactions.length - validTransactions.length + accounts.length - validAccounts.length;
 
     const now = new Date().toISOString();
-    const records = validTransactions.map((item) => ({ ...item, id: item.id || crypto.randomUUID(), updatedAt: item.updatedAt || now, createdAt: item.createdAt || now, syncStatus: "pending", lastSyncError: "" }));
+    const records = validTransactions.map((item) => ({
+      ...item,
+      id: item.id || crypto.randomUUID(),
+      updatedAt: item.updatedAt || now,
+      createdAt: item.createdAt || now,
+      syncStatus: "pending",
+      lastSyncError: "",
+    }));
     await bulkPutExpenses(records);
-    for (const account of validAccounts) { await putAccount({ ...account, syncStatus: "pending", lastSyncError: "" }); }
+    for (const account of validAccounts) {
+      await putAccount({ ...account, syncStatus: "pending", lastSyncError: "" });
+    }
 
-    if (data.budgets && Array.isArray(data.budgets)) { for (const b of data.budgets) { if (b && b.category && b.amount) await putBudget(b); } }
-    if (data.recurring && Array.isArray(data.recurring)) { for (const r of data.recurring) { if (r && r.id) await putRecurring(r); } }
+    if (data.budgets && Array.isArray(data.budgets)) {
+      for (const b of data.budgets) {
+        if (b && b.category && b.amount) await putBudget(b);
+      }
+    }
+    if (data.recurring && Array.isArray(data.recurring)) {
+      for (const r of data.recurring) {
+        if (r && r.id) await putRecurring(r);
+      }
+    }
 
     await refreshUI();
-    const msg = skipped > 0 ? `${records.length} records restored (${skipped} invalid skipped).` : `${records.length} records restored.`;
+    const msg =
+      skipped > 0
+        ? `${records.length} records restored (${skipped} invalid skipped).`
+        : `${records.length} records restored.`;
     showToast(msg);
     syncPendingRecords();
   } catch (error) {
@@ -2996,7 +3470,10 @@ function showFieldError(errorEl, inputEl, message) {
 }
 
 function updatePasswordStrength(password) {
-  if (!password) { passwordStrength.classList.add("hidden"); return; }
+  if (!password) {
+    passwordStrength.classList.add("hidden");
+    return;
+  }
   passwordStrength.classList.remove("hidden");
   const { level, label } = getPasswordStrength(password);
   strengthFill.className = `strength-fill ${level}`;
@@ -3097,8 +3574,12 @@ async function migrateExistingData() {
   });
   if (!needsMigration.length) return;
 
-  const purseAccount = allAccounts.find((a) => a.name.toLowerCase().includes("purse") || (a.type === "cash" && !a.archived));
-  const bankAccount = allAccounts.find((a) => a.name.toLowerCase().includes("bank") || (a.type === "bank" && !a.archived));
+  const purseAccount = allAccounts.find(
+    (a) => a.name.toLowerCase().includes("purse") || (a.type === "cash" && !a.archived)
+  );
+  const bankAccount = allAccounts.find(
+    (a) => a.name.toLowerCase().includes("bank") || (a.type === "bank" && !a.archived)
+  );
   if (!purseAccount && !bankAccount) return;
 
   const now = new Date().toISOString();
@@ -3108,13 +3589,23 @@ async function migrateExistingData() {
     const payment = (tx.paymentMethod || "").toLowerCase();
     let targetAccountId = null;
     if (payment.includes("cash") || desc.includes("purse")) targetAccountId = purseAccount?.id || null;
-    else if (payment.includes("upi") || payment.includes("card") || payment.includes("bank")) targetAccountId = bankAccount?.id || null;
+    else if (payment.includes("upi") || payment.includes("card") || payment.includes("bank"))
+      targetAccountId = bankAccount?.id || null;
     else if (purseAccount && !bankAccount) targetAccountId = purseAccount.id;
     else if (bankAccount && !purseAccount) targetAccountId = bankAccount.id;
     if (!targetAccountId) continue;
 
     const type = normalizeType(tx.type);
-    await putExpense({ ...tx, type, accountId: targetAccountId, fromAccountId: type === "debit" ? targetAccountId : null, toAccountId: type === "credit" ? targetAccountId : null, updatedAt: now, syncStatus: "pending", lastSyncError: "" });
+    await putExpense({
+      ...tx,
+      type,
+      accountId: targetAccountId,
+      fromAccountId: type === "debit" ? targetAccountId : null,
+      toAccountId: type === "credit" ? targetAccountId : null,
+      updatedAt: now,
+      syncStatus: "pending",
+      lastSyncError: "",
+    });
     migrated++;
   }
   if (migrated > 0) showToast(`${migrated} transactions linked to accounts.`);
@@ -3124,7 +3615,10 @@ async function migrateExistingData() {
 async function checkOnboarding() {
   const dismissed = await getSetting("onboardingDone");
   if (dismissed) return;
-  if (cachedAccounts.length > 0) { await putSetting("onboardingDone", true); return; }
+  if (cachedAccounts.length > 0) {
+    await putSetting("onboardingDone", true);
+    return;
+  }
   el.onboardingOverlay.classList.remove("hidden");
 }
 
@@ -3145,13 +3639,24 @@ async function onboardingCreateAccount() {
   const typeInput = document.querySelector("#onboardingAccountType");
   const balanceInput = document.querySelector("#onboardingBalance");
   const name = nameInput ? nameInput.value.trim() : "";
-  if (!name) { showToast("Please enter an account name."); return; }
+  if (!name) {
+    showToast("Please enter an account name.");
+    return;
+  }
 
   const now = new Date().toISOString();
   await putAccount({
-    id: crypto.randomUUID(), name, type: typeInput ? typeInput.value : "cash",
-    openingBalance: Number(balanceInput?.value || 0), openingDate: localDateKey(),
-    alias: "", archived: false, createdAt: now, updatedAt: now, syncStatus: "pending", lastSyncError: "",
+    id: crypto.randomUUID(),
+    name,
+    type: typeInput ? typeInput.value : "cash",
+    openingBalance: Number(balanceInput?.value || 0),
+    openingDate: localDateKey(),
+    alias: "",
+    archived: false,
+    createdAt: now,
+    updatedAt: now,
+    syncStatus: "pending",
+    lastSyncError: "",
   });
   await refreshUI();
   showOnboardingStep(3);
@@ -3173,14 +3678,16 @@ async function renderAuditLog(append = false) {
   const totalCount = await getAuditLogCount();
 
   if (!entries.length && !append) {
-    container.innerHTML = '<p class="empty-state" style="padding:0.75rem;margin:0;font-size:0.8rem;">No activity recorded yet.</p>';
+    container.innerHTML = renderEmptyState("activity", "No activity recorded yet.");
     if (loadMoreBtn) loadMoreBtn.classList.add("hidden");
     return;
   }
 
   const actionIcons = { create: "+", update: "~", delete: "×" };
 
-  const html = entries.map((entry) => `
+  const html = entries
+    .map(
+      (entry) => `
     <div class="audit-log__item">
       <div class="audit-log__icon audit-log__icon--${escapeHtml(entry.action)}">
         ${actionIcons[entry.action] || "?"}
@@ -3190,7 +3697,9 @@ async function renderAuditLog(append = false) {
         <div class="audit-log__time">${escapeHtml(relativeTime(entry.timestamp))}</div>
       </div>
     </div>
-  `).join("");
+  `
+    )
+    .join("");
 
   if (append) {
     container.insertAdjacentHTML("beforeend", html);
@@ -3205,12 +3714,27 @@ async function renderAuditLog(append = false) {
 }
 
 // ── Settings Panel ──────────────────────────────────────────────────────────
-function openSettings() { el.settingsPanel.classList.remove("hidden"); el.settingsPanel.classList.add("open"); renderAuditLog(); }
-function closeSettings() { el.settingsPanel.classList.remove("open"); setTimeout(() => el.settingsPanel.classList.add("hidden"), 300); }
+function openSettings() {
+  el.settingsPanel.classList.remove("hidden");
+  el.settingsPanel.classList.add("open");
+  renderAuditLog();
+}
+function closeSettings() {
+  el.settingsPanel.classList.remove("open");
+  setTimeout(() => el.settingsPanel.classList.add("hidden"), 300);
+}
 
 // ── Filter Sheet (mobile) ───────────────────────────────────────────────────
-function openFilterSheet() { el.filterSheet.classList.remove("hidden"); el.filterSheet.classList.add("open"); document.body.classList.add("modal-open"); }
-function closeFilterSheet() { el.filterSheet.classList.remove("open"); document.body.classList.remove("modal-open"); setTimeout(() => el.filterSheet.classList.add("hidden"), 300); }
+function openFilterSheet() {
+  el.filterSheet.classList.remove("hidden");
+  el.filterSheet.classList.add("open");
+  document.body.classList.add("modal-open");
+}
+function closeFilterSheet() {
+  el.filterSheet.classList.remove("open");
+  document.body.classList.remove("modal-open");
+  setTimeout(() => el.filterSheet.classList.add("hidden"), 300);
+}
 
 function applyMobileFilters() {
   const mobileSearch = document.querySelector("#mobileSearchInput");
@@ -3236,8 +3760,15 @@ function applyMobileFilters() {
 // ── Event Listeners ─────────────────────────────────────────────────────────
 
 // PWA Install
-window.addEventListener("beforeinstallprompt", (event) => { event.preventDefault(); installPrompt = event; el.installBtn.classList.remove("hidden"); });
-window.addEventListener("appinstalled", () => { installPrompt = null; showToast("App installed."); });
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  installPrompt = event;
+  el.installBtn.classList.remove("hidden");
+});
+window.addEventListener("appinstalled", () => {
+  installPrompt = null;
+  showToast("App installed.");
+});
 
 // Re-lock on visibility change with grace period (user switches away and comes back)
 let lastUnlockTime = 0;
@@ -3258,19 +3789,38 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // Network
-window.addEventListener("online", () => { setNetworkBadge(); showToast("Online. Syncing..."); syncPendingRecords(); });
-window.addEventListener("offline", () => { setNetworkBadge(); showToast("Offline. Data saved locally."); });
+window.addEventListener("online", () => {
+  setNetworkBadge();
+  showToast("Online. Syncing...", "success");
+  syncPendingRecords();
+});
+window.addEventListener("offline", () => {
+  setNetworkBadge();
+  showToast("Offline. Data saved locally.", "warning");
+});
 
 // Install button
 el.installBtn.addEventListener("click", async () => {
-  if (installPrompt) { installPrompt.prompt(); await installPrompt.userChoice; installPrompt = null; return; }
+  if (installPrompt) {
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    installPrompt = null;
+    return;
+  }
   showToast("Use browser menu to install.");
 });
 
 // Auth
 const authForm = document.querySelector("#authForm");
-if (authForm) authForm.addEventListener("submit", (e) => { e.preventDefault(); handleSignIn(); });
-el.createAccountBtn.addEventListener("click", (e) => { e.preventDefault(); handleCreateAccount(); });
+if (authForm)
+  authForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    handleSignIn();
+  });
+el.createAccountBtn.addEventListener("click", (e) => {
+  e.preventDefault();
+  handleCreateAccount();
+});
 el.logoutBtn.addEventListener("click", async () => {
   const confirmed = await showConfirm("Sign Out", "Are you sure you want to sign out?");
   if (confirmed) signOut(auth);
@@ -3293,7 +3843,10 @@ if (darkModeSetting) darkModeSetting.addEventListener("change", toggleDarkMode);
 // App Lock
 const appLockToggle = document.querySelector("#appLockToggle");
 if (appLockToggle) {
-  isAppLockEnabled().then((enabled) => { appLockToggle.checked = enabled; appLockEnabledCache = enabled; });
+  isAppLockEnabled().then((enabled) => {
+    appLockToggle.checked = enabled;
+    appLockEnabledCache = enabled;
+  });
   isWebAuthnAvailable().then((available) => {
     if (!available) {
       appLockToggle.disabled = true;
@@ -3309,7 +3862,10 @@ if (appLockToggle) {
         showToast("App lock enabled. You'll need biometrics to open the app.");
       } else {
         const verified = await verifyWithBiometrics();
-        if (!verified) { appLockToggle.checked = true; return; }
+        if (!verified) {
+          appLockToggle.checked = true;
+          return;
+        }
         await disableAppLock();
         appLockEnabledCache = false;
         showToast("App lock disabled.");
@@ -3347,24 +3903,29 @@ async function attemptUnlock() {
       if (biometricFailCount >= 3) {
         lockMessage.textContent = "Multiple failures. Sign out to regain access.";
       } else {
-        lockMessage.textContent = err.name === "NotAllowedError"
-          ? "Authentication cancelled. Tap to try again."
-          : "Authentication failed. Tap to try again.";
+        lockMessage.textContent =
+          err.name === "NotAllowedError"
+            ? "Authentication cancelled. Tap to try again."
+            : "Authentication failed. Tap to try again.";
       }
     }
   }
 }
 
 if (unlockBtn) unlockBtn.addEventListener("click", attemptUnlock);
-if (lockSignOutBtn) lockSignOutBtn.addEventListener("click", async () => {
-  const confirmed = await showConfirm("Sign Out", "This will sign you out. You'll need your email and password to sign back in.");
-  if (confirmed) {
-    lockScreen.classList.add("hidden");
-    await disableAppLock();
-    appLockEnabledCache = false;
-    signOut(auth);
-  }
-});
+if (lockSignOutBtn)
+  lockSignOutBtn.addEventListener("click", async () => {
+    const confirmed = await showConfirm(
+      "Sign Out",
+      "This will sign you out. You'll need your email and password to sign back in."
+    );
+    if (confirmed) {
+      lockScreen.classList.add("hidden");
+      await disableAppLock();
+      appLockEnabledCache = false;
+      signOut(auth);
+    }
+  });
 
 // Tab navigation
 for (const tab of tabs) {
@@ -3394,7 +3955,9 @@ if (el.fabBtn) el.fabBtn.addEventListener("click", () => switchTab("add"));
 
 // Settings
 el.settingsBtn.addEventListener("click", openSettings);
-document.querySelectorAll('[data-action="close-settings"]').forEach((btn) => btn.addEventListener("click", closeSettings));
+document
+  .querySelectorAll('[data-action="close-settings"]')
+  .forEach((btn) => btn.addEventListener("click", closeSettings));
 
 // Audit log "Load more" button
 const loadMoreAuditBtn = document.querySelector("#loadMoreAuditBtn");
@@ -3408,7 +3971,9 @@ if (defaultAccountSelect) {
     defaultAccountId = val || null;
     await putSetting("defaultAccountId", val || null);
     populateAccountDropdowns();
-    showToast(val ? `Default account set to ${defaultAccountSelect.selectedOptions[0].textContent}` : "Default account cleared.");
+    showToast(
+      val ? `Default account set to ${defaultAccountSelect.selectedOptions[0].textContent}` : "Default account cleared."
+    );
   });
 }
 
@@ -3416,34 +3981,55 @@ if (defaultAccountSelect) {
 const saveNameBtn = document.querySelector("#saveNameBtn");
 const displayNameInput = document.querySelector("#displayNameInput");
 if (saveNameBtn && displayNameInput) {
-  displayNameInput.addEventListener("input", () => { displayNameInput.dataset.touched = "1"; });
-  displayNameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); saveUserName(displayNameInput.value); } });
+  displayNameInput.addEventListener("input", () => {
+    displayNameInput.dataset.touched = "1";
+  });
+  displayNameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveUserName(displayNameInput.value);
+    }
+  });
   saveNameBtn.addEventListener("click", () => saveUserName(displayNameInput.value));
 }
 
 // Transaction form
 if (el.transactionForm) el.transactionForm.addEventListener("submit", handleTransactionSubmit);
-if (el.txAmount) el.txAmount.addEventListener("input", () => {
-  if (Number(el.txAmount.value) > 0) clearFieldError(document.getElementById("txAmountGroup"), document.getElementById("txAmountError"));
-});
-if (el.txDescription) el.txDescription.addEventListener("input", () => {
-  if (el.txDescription.value.trim()) clearFieldError(document.getElementById("txDescriptionField"), document.getElementById("txDescriptionError"));
-});
-if (el.txAccount) el.txAccount.addEventListener("change", () => {
-  if (el.txAccount.value) clearFieldError(document.getElementById("txSingleAccountGroup"), document.getElementById("txAccountError"));
-});
-if (el.txFromAccount) el.txFromAccount.addEventListener("change", () => {
-  if (el.txFromAccount.value) clearFieldError(document.getElementById("txFromAccountField"), document.getElementById("txFromAccountError"));
-});
-if (el.txToAccount) el.txToAccount.addEventListener("change", () => {
-  if (el.txToAccount.value) clearFieldError(document.getElementById("txToAccountField"), document.getElementById("txToAccountError"));
-});
-if (el.accountNameInput) el.accountNameInput.addEventListener("input", () => {
-  if (el.accountNameInput.value.trim()) clearFieldError(el.accountNameInput.closest(".form-field"), document.getElementById("accountNameError"));
-});
-if (el.budgetAmount) el.budgetAmount.addEventListener("input", () => {
-  if (Number(el.budgetAmount.value) > 0) clearFieldError(el.budgetAmount.closest(".form-field"), document.getElementById("budgetAmountError"));
-});
+if (el.txAmount)
+  el.txAmount.addEventListener("input", () => {
+    if (Number(el.txAmount.value) > 0)
+      clearFieldError(document.getElementById("txAmountGroup"), document.getElementById("txAmountError"));
+  });
+if (el.txDescription)
+  el.txDescription.addEventListener("input", () => {
+    if (el.txDescription.value.trim())
+      clearFieldError(document.getElementById("txDescriptionField"), document.getElementById("txDescriptionError"));
+  });
+if (el.txAccount)
+  el.txAccount.addEventListener("change", () => {
+    if (el.txAccount.value)
+      clearFieldError(document.getElementById("txSingleAccountGroup"), document.getElementById("txAccountError"));
+  });
+if (el.txFromAccount)
+  el.txFromAccount.addEventListener("change", () => {
+    if (el.txFromAccount.value)
+      clearFieldError(document.getElementById("txFromAccountField"), document.getElementById("txFromAccountError"));
+  });
+if (el.txToAccount)
+  el.txToAccount.addEventListener("change", () => {
+    if (el.txToAccount.value)
+      clearFieldError(document.getElementById("txToAccountField"), document.getElementById("txToAccountError"));
+  });
+if (el.accountNameInput)
+  el.accountNameInput.addEventListener("input", () => {
+    if (el.accountNameInput.value.trim())
+      clearFieldError(el.accountNameInput.closest(".form-field"), document.getElementById("accountNameError"));
+  });
+if (el.budgetAmount)
+  el.budgetAmount.addEventListener("input", () => {
+    if (Number(el.budgetAmount.value) > 0)
+      clearFieldError(el.budgetAmount.closest(".form-field"), document.getElementById("budgetAmountError"));
+  });
 if (el.txTypeDebit) el.txTypeDebit.addEventListener("click", () => setTxType("debit"));
 if (el.txTypeCredit) el.txTypeCredit.addEventListener("click", () => setTxType("credit"));
 if (el.txTypeTransfer) el.txTypeTransfer.addEventListener("click", () => setTxType("transfer"));
@@ -3459,11 +4045,16 @@ if (el.txDescription) {
 const quickAddSubmit = document.querySelector('[data-action="quick-add-submit"]');
 if (quickAddSubmit) quickAddSubmit.addEventListener("click", handleQuickAdd);
 if (el.quickAddInput) {
-  el.quickAddInput.addEventListener("keydown", (e) => { if (e.key === "Enter") handleQuickAdd(); });
+  el.quickAddInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") handleQuickAdd();
+  });
   el.quickAddInput.addEventListener("input", () => {
     const preview = document.querySelector("#quickAddPreview");
     const text = el.quickAddInput.value.trim();
-    if (!text || text.length < 3) { preview.classList.add("hidden"); return; }
+    if (!text || text.length < 3) {
+      preview.classList.add("hidden");
+      return;
+    }
     const parsed = parseExpense(text);
     if (parsed.valid) {
       preview.classList.remove("hidden");
@@ -3564,61 +4155,74 @@ async function handleReceiptFile(file) {
   }
 }
 
-if (receiptCameraInput) receiptCameraInput.addEventListener("change", (e) => {
-  const file = e.target.files[0];
-  if (file) handleReceiptFile(file);
-  receiptCameraInput.value = "";
-});
+if (receiptCameraInput)
+  receiptCameraInput.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (file) handleReceiptFile(file);
+    receiptCameraInput.value = "";
+  });
 
-if (receiptFileInput) receiptFileInput.addEventListener("change", (e) => {
-  const file = e.target.files[0];
-  if (file) handleReceiptFile(file);
-  receiptFileInput.value = "";
-});
+if (receiptFileInput)
+  receiptFileInput.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (file) handleReceiptFile(file);
+    receiptFileInput.value = "";
+  });
 
-if (scanSaveBtn) scanSaveBtn.addEventListener("click", async () => {
-  const amount = Number(document.querySelector("#scanAmount").value);
-  const description = document.querySelector("#scanMerchant").value.trim();
-  const category = document.querySelector("#scanCategory").value;
-  const dateKey = document.querySelector("#scanDate").value || localDateKey();
-  const accountId = document.querySelector("#scanAccount").value;
+if (scanSaveBtn)
+  scanSaveBtn.addEventListener("click", async () => {
+    const amount = Number(document.querySelector("#scanAmount").value);
+    const description = document.querySelector("#scanMerchant").value.trim();
+    const category = document.querySelector("#scanCategory").value;
+    const dateKey = document.querySelector("#scanDate").value || localDateKey();
+    const accountId = document.querySelector("#scanAccount").value;
 
-  if (!amount || amount <= 0) { showToast("Please enter a valid amount."); return; }
-  if (!accountId) { showToast("Please select an account."); return; }
+    if (!amount || amount <= 0) {
+      showToast("Please enter a valid amount.");
+      return;
+    }
+    if (!accountId) {
+      showToast("Please select an account.");
+      return;
+    }
 
-  const now = new Date().toISOString();
-  const transaction = {
-    id: crypto.randomUUID(),
-    type: "debit",
-    amount,
-    accountId,
-    fromAccountId: accountId,
-    toAccountId: null,
-    category: category || "Other",
-    description: description || "Receipt scan",
-    dateKey,
-    occurredAt: `${dateKey}T${new Date().toISOString().slice(11, 23)}Z`,
-    createdAt: now,
-    updatedAt: now,
-    deleted: false,
-    syncStatus: "pending",
-    lastSyncError: "",
-  };
+    const now = new Date().toISOString();
+    const transaction = {
+      id: crypto.randomUUID(),
+      type: "debit",
+      amount,
+      accountId,
+      fromAccountId: accountId,
+      toAccountId: null,
+      category: category || "Other",
+      description: description || "Receipt scan",
+      dateKey,
+      occurredAt: `${dateKey}T${new Date().toISOString().slice(11, 23)}Z`,
+      createdAt: now,
+      updatedAt: now,
+      deleted: false,
+      syncStatus: "pending",
+      lastSyncError: "",
+    };
 
-  await putExpense(transaction);
-  logAudit("expense", transaction.id, "create", null, transaction);
-  scanResult.classList.add("hidden");
-  await refreshUI();
-  showToast(`Saved: ${formatMoney(amount)} — ${description || category}`);
-  syncPendingRecords();
-});
+    await putExpense(transaction);
+    logAudit("expense", transaction.id, "create", null, transaction);
+    scanResult.classList.add("hidden");
+    await refreshUI();
+    showToast(`Saved: ${formatMoney(amount)} — ${description || category}`, "success");
+    syncPendingRecords();
+  });
 
-if (scanDiscardBtn) scanDiscardBtn.addEventListener("click", () => {
-  scanResult.classList.add("hidden");
-});
+if (scanDiscardBtn)
+  scanDiscardBtn.addEventListener("click", () => {
+    scanResult.classList.add("hidden");
+  });
 
 // History filters
-function resetAndRenderHistory() { historyDisplayCount = historyPageSize; renderHistory(); }
+function resetAndRenderHistory() {
+  historyDisplayCount = historyPageSize;
+  renderHistory();
+}
 if (el.searchInput) el.searchInput.addEventListener("input", debounce(resetAndRenderHistory, 250));
 if (el.typeFilter) el.typeFilter.addEventListener("change", resetAndRenderHistory);
 if (el.accountFilter) el.accountFilter.addEventListener("change", resetAndRenderHistory);
@@ -3629,53 +4233,79 @@ if (el.amountMax) el.amountMax.addEventListener("change", resetAndRenderHistory)
 
 // Filter sheet (mobile)
 if (el.filterSheetBtn) el.filterSheetBtn.addEventListener("click", openFilterSheet);
-document.querySelectorAll('[data-action="close-filter-sheet"]').forEach((btn) => btn.addEventListener("click", closeFilterSheet));
-document.querySelectorAll('[data-action="apply-filters"]').forEach((btn) => btn.addEventListener("click", applyMobileFilters));
-document.querySelectorAll('[data-action="clear-filters"]').forEach((btn) => btn.addEventListener("click", () => {
-  document.querySelectorAll("#filterSheet input, #filterSheet select").forEach((input) => { if (input.type === "search" || input.type === "text" || input.type === "number" || input.type === "date") input.value = ""; else if (input.tagName === "SELECT") input.selectedIndex = 0; });
-  if (el.searchInput) el.searchInput.value = "";
-  if (el.typeFilter) el.typeFilter.value = "all";
-  if (el.accountFilter) el.accountFilter.value = "all";
-  if (el.dateRangeStart) el.dateRangeStart.value = "";
-  if (el.dateRangeEnd) el.dateRangeEnd.value = "";
-  if (el.amountMin) el.amountMin.value = "";
-  if (el.amountMax) el.amountMax.value = "";
-  resetAndRenderHistory();
-  closeFilterSheet();
-}));
+document
+  .querySelectorAll('[data-action="close-filter-sheet"]')
+  .forEach((btn) => btn.addEventListener("click", closeFilterSheet));
+document
+  .querySelectorAll('[data-action="apply-filters"]')
+  .forEach((btn) => btn.addEventListener("click", applyMobileFilters));
+document.querySelectorAll('[data-action="clear-filters"]').forEach((btn) =>
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#filterSheet input, #filterSheet select").forEach((input) => {
+      if (input.type === "search" || input.type === "text" || input.type === "number" || input.type === "date")
+        input.value = "";
+      else if (input.tagName === "SELECT") input.selectedIndex = 0;
+    });
+    if (el.searchInput) el.searchInput.value = "";
+    if (el.typeFilter) el.typeFilter.value = "all";
+    if (el.accountFilter) el.accountFilter.value = "all";
+    if (el.dateRangeStart) el.dateRangeStart.value = "";
+    if (el.dateRangeEnd) el.dateRangeEnd.value = "";
+    if (el.amountMin) el.amountMin.value = "";
+    if (el.amountMax) el.amountMax.value = "";
+    resetAndRenderHistory();
+    closeFilterSheet();
+  })
+);
 
 // View all history from dashboard
-document.querySelectorAll('[data-action="view-all-history"]').forEach((btn) => btn.addEventListener("click", () => switchTab("history")));
+document
+  .querySelectorAll('[data-action="view-all-history"]')
+  .forEach((btn) => btn.addEventListener("click", () => switchTab("history")));
 
 // Export/Import
 if (el.exportCsvBtn) el.exportCsvBtn.addEventListener("click", exportCsv);
 if (el.exportJsonBtn) el.exportJsonBtn.addEventListener("click", exportJson);
-if (el.syncNowBtn) el.syncNowBtn.addEventListener("click", async () => { await syncPendingRecords(); showToast(navigator.onLine ? "Sync completed." : "Still offline."); });
-if (el.importJsonInput) el.importJsonInput.addEventListener("change", (event) => { const [file] = event.target.files; if (file) importJson(file); });
+if (el.syncNowBtn)
+  el.syncNowBtn.addEventListener("click", async () => {
+    await syncPendingRecords();
+    showToast(navigator.onLine ? "Sync completed." : "Still offline.");
+  });
+if (el.importJsonInput)
+  el.importJsonInput.addEventListener("change", (event) => {
+    const [file] = event.target.files;
+    if (file) importJson(file);
+  });
 
 // History item actions (edit/delete + load more)
-if (el.historyList) el.historyList.addEventListener("click", (event) => {
-  const loadMore = event.target.closest("#historyLoadMoreBtn");
-  if (loadMore) { historyDisplayCount += historyPageSize; renderHistory(); return; }
-  const button = event.target.closest("button[data-action]");
-  if (!button) return;
-  const item = button.closest(".history-item");
-  const id = item?.dataset.id;
-  if (!id) return;
-  if (button.dataset.action === "edit") editExpense(id);
-  if (button.dataset.action === "delete") deleteExpense(id);
-});
+if (el.historyList)
+  el.historyList.addEventListener("click", (event) => {
+    const loadMore = event.target.closest("#historyLoadMoreBtn");
+    if (loadMore) {
+      historyDisplayCount += historyPageSize;
+      renderHistory();
+      return;
+    }
+    const button = event.target.closest("button[data-action]");
+    if (!button) return;
+    const item = button.closest(".history-item");
+    const id = item?.dataset.id;
+    if (!id) return;
+    if (button.dataset.action === "edit") editExpense(id);
+    if (button.dataset.action === "delete") deleteExpense(id);
+  });
 
 // Recent transactions actions
-if (el.recentTransactions) el.recentTransactions.addEventListener("click", (event) => {
-  const button = event.target.closest("button[data-action]");
-  if (!button) return;
-  const item = button.closest(".history-item");
-  const id = item?.dataset.id;
-  if (!id) return;
-  if (button.dataset.action === "edit") editExpense(id);
-  if (button.dataset.action === "delete") deleteExpense(id);
-});
+if (el.recentTransactions)
+  el.recentTransactions.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action]");
+    if (!button) return;
+    const item = button.closest(".history-item");
+    const id = item?.dataset.id;
+    if (!id) return;
+    if (button.dataset.action === "edit") editExpense(id);
+    if (button.dataset.action === "delete") deleteExpense(id);
+  });
 
 // Recurring transactions actions
 const recurringList = document.querySelector("#recurringList");
@@ -3700,7 +4330,10 @@ if (recurringList) {
       await putRecurring(recurring);
       showToast("Recurring resumed.");
     } else if (action === "delete-recurring") {
-      const ok = await showConfirm("Delete Recurring", `Delete "${recurring.description || recurring.category}" recurring transaction?`);
+      const ok = await showConfirm(
+        "Delete Recurring",
+        `Delete "${recurring.description || recurring.category}" recurring transaction?`
+      );
       if (!ok) return;
       recurring.deleted = true;
       await putRecurring(recurring);
@@ -3713,27 +4346,46 @@ if (recurringList) {
 }
 
 // Account actions
-if (el.accountsList) el.accountsList.addEventListener("click", (event) => {
-  const button = event.target.closest("button[data-action]");
-  const card = event.target.closest(".account-card");
-  const accountId = card?.dataset.accountId;
-  if (!accountId) return;
-  if (!button) { openAccountActivityModal(accountId); return; }
-  const action = button.dataset.action;
-  if (action === "view-activity") openAccountActivityModal(accountId);
-  else if (action === "edit-account") openEditAccountModal(accountId);
-  else if (action === "edit-balance") openEditBalanceModal(accountId);
-});
+if (el.accountsList)
+  el.accountsList.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action]");
+    const card = event.target.closest(".account-card");
+    const accountId = card?.dataset.accountId;
+    if (!accountId) return;
+    if (!button) {
+      openAccountActivityModal(accountId);
+      return;
+    }
+    const action = button.dataset.action;
+    if (action === "view-activity") openAccountActivityModal(accountId);
+    else if (action === "edit-account") openEditAccountModal(accountId);
+    else if (action === "edit-balance") openEditBalanceModal(accountId);
+  });
 
 el.addAccountBtn.addEventListener("click", openAddAccountModal);
 el.saveAccountBtn.addEventListener("click", saveAccount);
-el.editOpeningBalanceBtn.addEventListener("click", () => { closeModal(el.accountModal); if (editingAccountId) openEditOpeningBalanceModal(editingAccountId); });
+el.editOpeningBalanceBtn.addEventListener("click", () => {
+  closeModal(el.accountModal);
+  if (editingAccountId) openEditOpeningBalanceModal(editingAccountId);
+});
 el.saveBalanceBtn.addEventListener("click", saveBalanceAdjustment);
 el.saveOpeningBalanceBtn.addEventListener("click", saveOpeningBalance);
-el.createAdjustmentInsteadBtn.addEventListener("click", () => { const id = adjustmentTargetAccountId; closeModal(el.editOpeningBalanceModal); openEditBalanceModal(id); });
-el.activityEditDetailsBtn.addEventListener("click", () => { closeModal(el.accountActivityModal); openEditAccountModal(activityViewAccountId); });
-el.activityEditBalanceBtn.addEventListener("click", () => { closeModal(el.accountActivityModal); openEditBalanceModal(activityViewAccountId); });
-document.getElementById("chatBackBtn").addEventListener("click", () => { closeModal(el.accountActivityModal); });
+el.createAdjustmentInsteadBtn.addEventListener("click", () => {
+  const id = adjustmentTargetAccountId;
+  closeModal(el.editOpeningBalanceModal);
+  openEditBalanceModal(id);
+});
+el.activityEditDetailsBtn.addEventListener("click", () => {
+  closeModal(el.accountActivityModal);
+  openEditAccountModal(activityViewAccountId);
+});
+el.activityEditBalanceBtn.addEventListener("click", () => {
+  closeModal(el.accountActivityModal);
+  openEditBalanceModal(activityViewAccountId);
+});
+document.getElementById("chatBackBtn").addEventListener("click", () => {
+  closeModal(el.accountActivityModal);
+});
 
 // Chat send button & input
 const chatSendBtn = document.querySelector("#chatSendBtn");
@@ -3785,7 +4437,9 @@ if (accountActivityList) {
 
     // Remove actions from all other bubbles
     accountActivityList.querySelectorAll(".chat-bubble-actions").forEach((el) => el.remove());
-    accountActivityList.querySelectorAll(".chat-bubble--active").forEach((el) => el.classList.remove("chat-bubble--active"));
+    accountActivityList
+      .querySelectorAll(".chat-bubble--active")
+      .forEach((el) => el.classList.remove("chat-bubble--active"));
 
     // Add action buttons to this bubble
     bubble.classList.add("chat-bubble--active");
@@ -3829,9 +4483,12 @@ if (chatSearchCloseBtn) {
 }
 
 if (chatSearchInput) {
-  chatSearchInput.addEventListener("input", debounce(() => {
-    filterChatBubbles(chatSearchInput.value.trim().toLowerCase());
-  }, 250));
+  chatSearchInput.addEventListener(
+    "input",
+    debounce(() => {
+      filterChatBubbles(chatSearchInput.value.trim().toLowerCase());
+    }, 250)
+  );
 }
 
 function filterChatBubbles(query) {
@@ -3841,8 +4498,12 @@ function filterChatBubbles(query) {
   const dividers = list.querySelectorAll(".chat-date-divider");
 
   if (!query) {
-    bubbles.forEach((b) => { b.classList.remove("chat-bubble--hidden", "chat-bubble--highlight"); });
-    dividers.forEach((d) => { d.classList.remove("hidden"); });
+    bubbles.forEach((b) => {
+      b.classList.remove("chat-bubble--hidden", "chat-bubble--highlight");
+    });
+    dividers.forEach((d) => {
+      d.classList.remove("hidden");
+    });
     return;
   }
 
@@ -3857,7 +4518,9 @@ function filterChatBubbles(query) {
     }
   });
 
-  dividers.forEach((d) => { d.classList.add("hidden"); });
+  dividers.forEach((d) => {
+    d.classList.add("hidden");
+  });
 }
 
 // Edit transaction modal
@@ -3867,25 +4530,37 @@ if (editTxSaveBtn) editTxSaveBtn.addEventListener("click", saveEditedTransaction
 // Budget
 if (el.addBudgetBtn) el.addBudgetBtn.addEventListener("click", openBudgetModal);
 if (el.saveBudgetBtn) el.saveBudgetBtn.addEventListener("click", saveBudget);
-if (el.budgetList) el.budgetList.addEventListener("click", (event) => {
-  const btn = event.target.closest('[data-action="delete-budget"]');
-  if (btn) handleDeleteBudget(btn.dataset.budgetId);
-});
+if (el.budgetList)
+  el.budgetList.addEventListener("click", (event) => {
+    const btn = event.target.closest('[data-action="delete-budget"]');
+    if (btn) handleDeleteBudget(btn.dataset.budgetId);
+  });
 
 // Confirm modal
 el.confirmYes.addEventListener("click", handleConfirmYes);
 el.confirmNo.addEventListener("click", handleConfirmNo);
 
 // Onboarding
-document.querySelectorAll('[data-action="onboarding-next"]').forEach((btn) => btn.addEventListener("click", () => showOnboardingStep(2)));
-document.querySelectorAll('[data-action="onboarding-skip"]').forEach((btn) => btn.addEventListener("click", dismissOnboarding));
-document.querySelectorAll('[data-action="onboarding-create-account"]').forEach((btn) => btn.addEventListener("click", onboardingCreateAccount));
-document.querySelectorAll('[data-action="onboarding-finish"]').forEach((btn) => btn.addEventListener("click", dismissOnboarding));
+document
+  .querySelectorAll('[data-action="onboarding-next"]')
+  .forEach((btn) => btn.addEventListener("click", () => showOnboardingStep(2)));
+document
+  .querySelectorAll('[data-action="onboarding-skip"]')
+  .forEach((btn) => btn.addEventListener("click", dismissOnboarding));
+document
+  .querySelectorAll('[data-action="onboarding-create-account"]')
+  .forEach((btn) => btn.addEventListener("click", onboardingCreateAccount));
+document
+  .querySelectorAll('[data-action="onboarding-finish"]')
+  .forEach((btn) => btn.addEventListener("click", dismissOnboarding));
 
 // Close modals only via close-button
 document.addEventListener("click", (event) => {
   const closeBtn = event.target.closest("[data-modal].modal-close-btn");
-  if (closeBtn) { const modal = document.querySelector(`#${closeBtn.dataset.modal}`); if (modal) closeModal(modal); }
+  if (closeBtn) {
+    const modal = document.querySelector(`#${closeBtn.dataset.modal}`);
+    if (modal) closeModal(modal);
+  }
 });
 
 document.addEventListener("keydown", (event) => {
@@ -3915,12 +4590,68 @@ async function checkStorageQuota() {
   }
 }
 
+function initChartTooltips() {
+  let tip = document.querySelector(".chart-tooltip");
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.className = "chart-tooltip";
+    document.body.appendChild(tip);
+  }
+  let hideTimer;
+  function show(text, x, y) {
+    clearTimeout(hideTimer);
+    tip.textContent = text;
+    tip.classList.add("chart-tooltip--visible");
+    const rect = tip.getBoundingClientRect();
+    const left = Math.min(x - rect.width / 2, window.innerWidth - rect.width - 8);
+    tip.style.left = `${Math.max(8, left)}px`;
+    tip.style.top = `${y - rect.height - 10}px`;
+  }
+  function hide() {
+    hideTimer = setTimeout(() => tip.classList.remove("chart-tooltip--visible"), 120);
+  }
+  document.addEventListener("pointerover", (e) => {
+    const target = e.target.closest("[data-tooltip], .donut-segment, .daily-bar, .line-chart__dot, .ie-bar__bar");
+    if (!target) return;
+    const title = target.querySelector("title");
+    const text = target.dataset.tooltip || (title ? title.textContent : "");
+    if (!text) return;
+    if (title) {
+      target.dataset.tooltip = text;
+      title.remove();
+    }
+    const r = target.getBoundingClientRect();
+    show(text, r.left + r.width / 2, r.top);
+  });
+  document.addEventListener("pointerout", (e) => {
+    if (e.target.closest("[data-tooltip], .donut-segment, .daily-bar, .line-chart__dot, .ie-bar__bar")) hide();
+  });
+  document.addEventListener(
+    "touchstart",
+    (e) => {
+      const target = e.target.closest("[data-tooltip], .donut-segment, .daily-bar, .line-chart__dot, .ie-bar__bar");
+      if (!target) {
+        hide();
+        return;
+      }
+      const text = target.dataset.tooltip;
+      if (!text) return;
+      const r = target.getBoundingClientRect();
+      show(text, r.left + r.width / 2, r.top);
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(hide, 2000);
+    },
+    { passive: true }
+  );
+}
+
 async function initialize() {
   initRippleEffect();
   initPageTransitions();
   initScrollHeader();
   initPullToRefresh(() => refreshUI());
   initSwipeNavigation(tabs, switchTab);
+  initChartTooltips();
   initInsightsSubtabs();
   await initDarkMode();
   await loadDefaultAccount();
@@ -3971,7 +4702,10 @@ async function initialize() {
       await checkOnboarding();
       syncPendingRecords();
     } else {
-      if (cloudUnsubscribe) { cloudUnsubscribe(); cloudUnsubscribe = null; }
+      if (cloudUnsubscribe) {
+        cloudUnsubscribe();
+        cloudUnsubscribe = null;
+      }
       el.appScreen.classList.add("hidden");
       el.authScreen.classList.remove("hidden");
       await refreshUI();
@@ -3981,5 +4715,5 @@ async function initialize() {
 
 initialize().catch((error) => {
   console.error(error);
-  showToast("Application startup failed. Check the console.");
+  showToast("Application startup failed. Check the console.", "error");
 });
