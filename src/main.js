@@ -509,6 +509,9 @@ function switchTab(key) {
     tab.panel.classList.toggle("tab-panel--active", isActive);
     tab.panel.hidden = !isActive;
   }
+  if (el.fabBtn) {
+    el.fabBtn.classList.toggle("fab--hidden", key === "add");
+  }
   putSetting("lastTab", key);
   trackScreen(key);
 }
@@ -613,6 +616,7 @@ function renderInsightsForTab(tab) {
       break;
     case "trends":
       renderTrendChart();
+      renderDailySpendingChart();
       renderIncomeExpenseChart();
       break;
     case "analysis":
@@ -929,6 +933,47 @@ async function renderTrendChart() {
     <div class="trend-chart__footer">
       <span>This month: <strong>${escapeHtml(formatMoney(curr))}</strong></span>
       <span class="trend-chart__change ${changeClass}">${escapeHtml(changeLabel)} vs last month</span>
+    </div>
+  `;
+}
+
+// ── Daily Spending Bar Chart (current month) ───────────────────────────────
+async function renderDailySpendingChart() {
+  const container = document.querySelector("#dailySpendingChart");
+  if (!container) return;
+  const { renderDailyBarChart } = await import("./chart-engine.js");
+  const visible = getVisibleExpenses();
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const currentMonthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const todayDay = now.getDate();
+
+  const dailyTotals = new Array(daysInMonth).fill(0);
+  for (const item of visible) {
+    const t = normalizeType(item.type);
+    if (t !== "debit") continue;
+    const mk = String(item.dateKey).slice(0, 7);
+    if (mk !== currentMonthKey) continue;
+    const day = parseInt(String(item.dateKey).slice(8, 10), 10);
+    if (day >= 1 && day <= daysInMonth) dailyTotals[day - 1] += Number(item.amount);
+  }
+
+  const total = dailyTotals.reduce((s, v) => s + v, 0);
+  if (total === 0) {
+    container.innerHTML = `<p class="trend-chart__placeholder">No spending recorded this month yet.</p>`;
+    return;
+  }
+
+  const dataPoints = dailyTotals.map((val, i) => ({ day: i + 1, value: val }));
+  const avgPerDay = total / todayDay;
+
+  container.innerHTML = `
+    ${renderDailyBarChart(dataPoints, formatMoney, todayDay)}
+    <div class="trend-chart__footer">
+      <span>Total: <strong>${escapeHtml(formatMoney(total))}</strong></span>
+      <span>Avg/day: <strong>${escapeHtml(formatMoney(avgPerDay))}</strong></span>
     </div>
   `;
 }
@@ -2508,14 +2553,28 @@ function renderAccountActivity(accountId) {
   }
 
   const balanceMap = calculateBalanceAfterEachTransaction(account, cachedExpenses);
+
+  const dailyTotals = new Map();
+  for (const item of transactions) {
+    const dk = item.dateKey;
+    if (!dailyTotals.has(dk)) dailyTotals.set(dk, { debit: 0, credit: 0 });
+    const t = normalizeType(item.type);
+    if (t === "debit") dailyTotals.get(dk).debit += Number(item.amount);
+    else if (t === "credit") dailyTotals.get(dk).credit += Number(item.amount);
+  }
+
   let html = "";
   let lastDateKey = "";
 
   for (const item of transactions) {
-    // Date divider
     if (item.dateKey !== lastDateKey) {
       lastDateKey = item.dateKey;
-      html += `<div class="chat-date-divider"><span>${escapeHtml(formatDateGroup(item.dateKey))}</span></div>`;
+      const dt = dailyTotals.get(item.dateKey) || { debit: 0, credit: 0 };
+      const parts = [];
+      if (dt.debit > 0) parts.push(`<span class="day-total__debit">-${escapeHtml(formatMoney(dt.debit))}</span>`);
+      if (dt.credit > 0) parts.push(`<span class="day-total__credit">+${escapeHtml(formatMoney(dt.credit))}</span>`);
+      const totalLine = parts.length ? `<div class="chat-day-total">${parts.join('<span class="day-total__sep">&middot;</span>')}</div>` : "";
+      html += `<div class="chat-date-divider"><span>${escapeHtml(formatDateGroup(item.dateKey))}</span></div>${totalLine}`;
     }
 
     const type = normalizeType(item.type);

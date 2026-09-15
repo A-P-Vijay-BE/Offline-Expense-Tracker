@@ -742,6 +742,10 @@ button:disabled {
   transform: scale(0.95);
 }
 
+.fab--hidden {
+  display: none !important;
+}
+
 /* ── Dashboard Greeting ───────────────────────────────────────────────────── */
 .dashboard-greeting {
   display: flex;
@@ -2596,21 +2600,32 @@ button:disabled {
 
 .chat-bubble__amount {
   font-weight: 800;
-  font-size: 1.05rem;
+  font-size: 1.1rem;
   display: block;
+  letter-spacing: -0.3px;
 }
 
 .chat-bubble__desc {
-  margin-top: 2px;
+  margin-top: 3px;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  opacity: 0.85;
 }
 
 .chat-bubble__meta {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 4px;
-  font-size: 0.76rem;
-  opacity: 0.7;
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  font-size: 0.72rem;
+  opacity: 0.75;
+  flex-wrap: wrap;
+}
+
+[data-theme="dark"] .chat-bubble__meta {
+  border-top-color: rgba(255, 255, 255, 0.08);
 }
 
 .chat-bubble__type-badge {
@@ -2645,14 +2660,21 @@ button:disabled {
 
 .chat-bubble__balance {
   margin-left: auto;
-  font-weight: 600;
-  font-size: 0.72rem;
-  opacity: 0.8;
+  font-weight: 700;
+  font-size: 0.7rem;
+  opacity: 0.9;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+[data-theme="dark"] .chat-bubble__balance {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .chat-date-divider {
   text-align: center;
-  margin: 10px 0;
+  margin: 14px 0 2px;
 }
 
 .chat-date-divider span {
@@ -2662,6 +2684,30 @@ button:disabled {
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--text-muted);
+}
+
+.chat-day-total {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.day-total__debit {
+  color: var(--color-danger, #dc2626);
+}
+
+.day-total__credit {
+  color: var(--color-success, #16a34a);
+}
+
+.day-total__sep {
+  color: var(--text-faint);
+  font-size: 0.6rem;
 }
 
 .chat-empty {
@@ -3346,8 +3392,13 @@ body.modal-open {
   }
 
   /* Tab nav adjustments for small screens */
+  :root {
+    --tab-bar-height: 58px;
+    --fab-bottom: 74px;
+  }
+
   .tab-nav {
-    height: 58px;
+    height: var(--tab-bar-height);
     padding: 0 4px;
   }
 
@@ -4538,6 +4589,7 @@ button:focus-visible {
 .donut-chart,
 .line-chart,
 .daily-heatmap,
+.daily-bar-chart,
 .ie-bar-chart {
   animation: chartFadeIn 0.35s ease;
 }
@@ -4612,6 +4664,43 @@ button:focus-visible {
 .trend-chart__change.trend-down {
   background: var(--color-success-bg);
   color: var(--color-success);
+}
+
+/* ── Daily Bar Chart ─────────────────────────────────────────────────────── */
+.daily-bar-chart {
+  width: 100%;
+  overflow: hidden;
+}
+
+.daily-bar-chart__svg {
+  width: 100%;
+  height: auto;
+  max-height: 160px;
+}
+
+.daily-bar {
+  fill: var(--color-accent-start);
+  opacity: 0.7;
+  transition: opacity 0.15s ease;
+}
+
+.daily-bar:hover {
+  opacity: 1;
+}
+
+.daily-bar--today {
+  fill: var(--color-primary);
+  opacity: 1;
+}
+
+.daily-bar__label {
+  font-size: 7px;
+  fill: var(--text-faint);
+  font-weight: 500;
+}
+
+.daily-spending-chart {
+  animation: chartFadeIn 0.35s ease;
 }
 
 /* ── Daily Heatmap ───────────────────────────────────────────────────────── */

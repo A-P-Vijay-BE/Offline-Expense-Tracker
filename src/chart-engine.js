@@ -218,3 +218,50 @@ export function renderDailyHeatmap(dailyData, currentMonth, formatAmount, year, 
     </div>
   `;
 }
+
+export function renderDailyBarChart(dailyPoints, formatAmount, todayDay) {
+  if (!dailyPoints.length) return "";
+
+  const maxVal = Math.max(...dailyPoints.map((d) => d.value));
+  if (maxVal === 0) return "";
+
+  const padding = { top: 12, right: 8, bottom: 28, left: 8 };
+  const width = 400, height = 140;
+  const chartW = width - padding.left - padding.right;
+  const chartH = height - padding.top - padding.bottom;
+  const barGap = 1;
+  const barWidth = Math.max(2, (chartW - barGap * dailyPoints.length) / dailyPoints.length);
+
+  const gridLines = [];
+  for (let i = 0; i <= 3; i++) {
+    const y = padding.top + (i / 3) * chartH;
+    gridLines.push(`<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--border-color)" stroke-width="0.5" stroke-dasharray="3,3"/>`);
+  }
+
+  const bars = dailyPoints.map((d, i) => {
+    const barH = maxVal > 0 ? (d.value / maxVal) * chartH : 0;
+    const x = padding.left + i * (barWidth + barGap);
+    const y = padding.top + chartH - barH;
+    const isToday = d.day === todayDay;
+    const cls = isToday ? "daily-bar--today" : "";
+    const tooltip = `Day ${d.day}: ${esc(formatAmount(d.value))}`;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(0, barH).toFixed(1)}" rx="1.5" class="daily-bar ${cls}" aria-label="${tooltip}"><title>${tooltip}</title></rect>`;
+  });
+
+  const labelInterval = dailyPoints.length > 15 ? 5 : dailyPoints.length > 7 ? 3 : 1;
+  const labels = dailyPoints.filter((d) => d.day % labelInterval === 0 || d.day === 1).map((d, _, arr) => {
+    const idx = dailyPoints.indexOf(d);
+    const x = padding.left + idx * (barWidth + barGap) + barWidth / 2;
+    return `<text x="${x.toFixed(1)}" y="${height - 4}" text-anchor="middle" class="daily-bar__label">${d.day}</text>`;
+  });
+
+  return `
+    <div class="daily-bar-chart">
+      <svg viewBox="0 0 ${width} ${height}" class="daily-bar-chart__svg" role="img" aria-label="Daily spending bar chart" preserveAspectRatio="xMidYMid meet">
+        ${gridLines.join("")}
+        ${bars.join("")}
+        ${labels.join("")}
+      </svg>
+    </div>
+  `;
+}
