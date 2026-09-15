@@ -83,7 +83,6 @@
 
   /* Tab bar height for spacing calculations */
   --tab-bar-height: 64px;
-  --fab-bottom: 80px;
 }
 
 /* ── Dark Theme ────────────────────────────────────────────────────────────── */
@@ -634,13 +633,13 @@ button:disabled {
   right: 0;
   z-index: 50;
   display: flex;
-  justify-content: space-around;
-  align-items: center;
+  justify-content: stretch;
+  align-items: flex-end;
   height: var(--tab-bar-height);
   background: var(--bg-card);
   border-top: 1px solid var(--border-color);
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.06);
-  padding: 0 8px;
+  padding: 0;
   padding-bottom: env(safe-area-inset-bottom);
   transition: background var(--transition-theme), border-color var(--transition-theme);
 }
@@ -651,16 +650,18 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  padding: 8px 12px;
+  flex: 1 1 0;
+  padding: 8px 0;
   border: none;
   background: none;
   color: var(--text-faint);
   font-size: 0.68rem;
   font-weight: 600;
-  border-radius: var(--radius-md);
-  transition: color var(--transition-fast), background var(--transition-fast);
+  border-radius: 0;
+  transition: color var(--transition-fast);
   position: relative;
-  min-width: 56px;
+  min-width: 0;
+  height: 100%;
 }
 
 .tab-nav__btn svg,
@@ -672,7 +673,6 @@ button:disabled {
 
 .tab-nav__btn:hover {
   color: var(--color-primary);
-  background: var(--color-info-bg);
 }
 
 .tab-nav__btn--active {
@@ -691,6 +691,7 @@ button:disabled {
   background: var(--color-gradient);
   border-radius: 0 0 var(--radius-full) var(--radius-full);
 }
+
 
 /* ── Tab Panels ────────────────────────────────────────────────────────────── */
 .tab-panel {
@@ -715,11 +716,12 @@ button:disabled {
 
 /* ── Floating Action Button (FAB) ──────────────────────────────────────────── */
 .fab {
-  display: none;
-  position: fixed;
-  bottom: var(--fab-bottom);
-  right: 20px;
-  z-index: 40;
+  display: flex !important;
+  position: fixed !important;
+  bottom: calc(var(--tab-bar-height) + 16px);
+  right: 20px !important;
+  left: auto !important;
+  z-index: 100;
   width: 56px;
   height: 56px;
   border-radius: 50%;
@@ -730,7 +732,9 @@ button:disabled {
   box-shadow: var(--shadow-fab);
   align-items: center;
   justify-content: center;
-  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease;
 }
 
 .fab:hover {
@@ -753,6 +757,20 @@ button:disabled {
   border-radius: 16px;
   color: #fff;
   box-shadow: 0 4px 14px rgba(7, 94, 84, 0.2);
+  position: relative;
+  overflow: hidden;
+}
+
+.dashboard-greeting--morning {
+  background: linear-gradient(135deg, #075e54, #25d366);
+}
+
+.dashboard-greeting--afternoon {
+  background: linear-gradient(135deg, #0d7377, #14b8a6);
+}
+
+.dashboard-greeting--evening {
+  background: linear-gradient(135deg, #1e3a5f, #4f46e5);
 }
 
 [data-theme="dark"] .dashboard-greeting {
@@ -1504,7 +1522,8 @@ button:disabled {
   border: 1px solid var(--border-color);
   border-radius: 14px;
   background: var(--bg-card);
-  transition: background var(--transition-theme), border-color var(--transition-theme), transform var(--transition-fast);
+  position: relative;
+  transition: background var(--transition-theme), border-color var(--transition-theme), transform 0.25s ease, opacity 0.25s ease;
 }
 
 .history-item:hover {
@@ -1639,6 +1658,25 @@ button:disabled {
 .transfer-amount {
   color: var(--color-primary);
   font-weight: 700;
+}
+
+.category-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px 1px 5px;
+  border-radius: var(--radius-full);
+  background: var(--bg-muted);
+  font-weight: 600;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+}
+
+.category-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .account-tag {
@@ -2596,21 +2634,32 @@ button:disabled {
 
 .chat-bubble__amount {
   font-weight: 800;
-  font-size: 1.05rem;
+  font-size: 1.12rem;
   display: block;
+  letter-spacing: -0.3px;
 }
 
 .chat-bubble__desc {
-  margin-top: 2px;
+  margin-top: 3px;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  opacity: 0.85;
 }
 
 .chat-bubble__meta {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 4px;
-  font-size: 0.76rem;
-  opacity: 0.7;
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  font-size: 0.72rem;
+  opacity: 0.8;
+  flex-wrap: wrap;
+}
+
+[data-theme="dark"] .chat-bubble__meta {
+  border-top-color: rgba(255, 255, 255, 0.08);
 }
 
 .chat-bubble__type-badge {
@@ -2645,14 +2694,21 @@ button:disabled {
 
 .chat-bubble__balance {
   margin-left: auto;
-  font-weight: 600;
-  font-size: 0.72rem;
-  opacity: 0.8;
+  font-weight: 700;
+  font-size: 0.7rem;
+  opacity: 0.9;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+[data-theme="dark"] .chat-bubble__balance {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .chat-date-divider {
   text-align: center;
-  margin: 10px 0;
+  margin: 16px 0 6px;
 }
 
 .chat-date-divider span {
@@ -2662,6 +2718,40 @@ button:disabled {
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--text-muted);
+}
+
+/* ── Per-Day Total (bottom of each day group) ──────────────────────────────── */
+.chat-day-total {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 16px 12px;
+  padding: 6px 14px;
+  background: var(--bg-muted);
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  border: 1px dashed var(--border-color);
+}
+
+.day-total__debit {
+  color: var(--color-danger, #dc2626);
+}
+
+.day-total__credit {
+  color: var(--color-success, #16a34a);
+}
+
+.day-total__sep {
+  color: var(--text-faint);
+  font-size: 0.6rem;
+}
+
+[data-theme="dark"] .chat-day-total {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .chat-empty {
@@ -3148,6 +3238,38 @@ button:disabled {
   opacity: 0.5;
 }
 
+.empty-state--unified {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 20px;
+  animation: empty-fade-in 0.4s ease;
+}
+
+.empty-state--unified svg {
+  opacity: 0.3;
+  color: var(--color-primary);
+}
+
+.empty-state--unified p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  max-width: 260px;
+  color: var(--text-secondary);
+}
+
+.empty-state--unified p strong {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+@keyframes empty-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* ── Backup Panel ──────────────────────────────────────────────────────────── */
 .backup-panel {
   margin-top: 14px;
@@ -3173,11 +3295,58 @@ button:disabled {
   border-radius: var(--radius-md);
   background: var(--bg-toast);
   color: var(--text-on-toast);
-  text-align: center;
   box-shadow: var(--shadow-toast);
   z-index: 300;
   animation: slideUpToast 0.3s ease;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-left: 4px solid transparent;
+}
+
+.toast__icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.toast__text {
+  flex: 1;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.toast--success {
+  border-left-color: #25d366;
+}
+
+.toast--success .toast__icon {
+  color: #25d366;
+}
+
+.toast--error {
+  border-left-color: #ef4444;
+}
+
+.toast--error .toast__icon {
+  color: #ef4444;
+}
+
+.toast--warning {
+  border-left-color: #f59e0b;
+}
+
+.toast--warning .toast__icon {
+  color: #f59e0b;
+}
+
+.toast--info {
+  border-left-color: #34b7f1;
+}
+
+.toast--info .toast__icon {
+  color: #34b7f1;
 }
 
 @keyframes slideUpToast {
@@ -3239,8 +3408,8 @@ body.modal-open {
 
   .tab-nav__btn {
     font-size: 0.65rem;
-    min-width: 48px;
-    padding: 6px 10px;
+    min-width: 0;
+    padding: 6px 0;
   }
 
   .settings-panel {
@@ -3340,21 +3509,20 @@ body.modal-open {
     grid-template-columns: 1fr 1fr;
   }
 
-  /* Show FAB on mobile */
-  .fab {
-    display: flex;
+  /* Tab nav adjustments for small screens — update variable so FAB + app-shell stay in sync */
+  :root {
+    --tab-bar-height: 58px;
   }
 
-  /* Tab nav adjustments for small screens */
   .tab-nav {
-    height: 58px;
-    padding: 0 4px;
+    height: var(--tab-bar-height);
+    padding: 0;
   }
 
   .tab-nav__btn {
     font-size: 0.62rem;
-    min-width: 44px;
-    padding: 6px 6px;
+    min-width: 0;
+    padding: 6px 0;
     gap: 2px;
   }
 
@@ -3365,14 +3533,76 @@ body.modal-open {
     height: 20px;
   }
 
-  /* Quick-add adjustments */
+
+  /* Add panel mobile — full responsive layout */
+  .add-panel {
+    padding: 4px 0 24px;
+    gap: 0;
+  }
+
   .quick-add-card {
     padding: 14px;
+    border-radius: 12px;
+  }
+
+  .quick-add-card__header {
+    font-size: 0.85rem;
+    margin-bottom: 10px;
+    gap: 6px;
+  }
+
+  .quick-add-card__header svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+
+  .quick-add__row {
+    gap: 6px;
   }
 
   .quick-add__input {
-    font-size: 0.92rem;
-    padding: 12px 14px;
+    font-size: 0.88rem;
+    padding: 11px 12px;
+    border-radius: 10px;
+    border-width: 1.5px;
+    min-height: 44px;
+  }
+
+  .quick-add__submit {
+    width: 44px;
+    min-width: 44px;
+    border-radius: 10px;
+  }
+
+  .quick-add__submit svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .quick-add__chips {
+    gap: 6px;
+    margin-top: 10px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+
+  .quick-add__chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .quick-chip {
+    flex-shrink: 0;
+    padding: 5px 10px;
+    font-size: 0.72rem;
+  }
+
+  .quick-add__hint {
+    font-size: 0.72rem;
+    margin-top: 8px;
   }
 
   .tx-amount-input {
@@ -3387,6 +3617,63 @@ body.modal-open {
   .tx-type-btn {
     font-size: 0.75rem;
     padding: 10px 6px;
+  }
+
+  .tx-form-card {
+    padding: 14px;
+    border-radius: 12px;
+  }
+
+  .tx-form {
+    gap: 14px;
+  }
+
+  .add-divider {
+    margin: 14px 0;
+    gap: 10px;
+  }
+
+  .add-divider__text {
+    font-size: 0.7rem;
+  }
+
+  .scan-receipt-card {
+    padding: 14px;
+    border-radius: 12px;
+  }
+
+  .scan-receipt-card__desc {
+    font-size: 0.74rem;
+  }
+
+  .scan-receipt-card__actions {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .scan-btn {
+    padding: 10px 12px;
+    font-size: 0.82rem;
+    min-height: 44px;
+  }
+
+  .tx-submit-btn {
+    position: sticky;
+    bottom: calc(var(--tab-bar-height) + 8px);
+    z-index: 5;
+    min-height: 48px;
+    font-size: 0.88rem;
+    margin-right: 68px;
+  }
+
+  .tx-field__label {
+    font-size: 0.78rem;
+  }
+
+  .tx-field__input,
+  .tx-field__select {
+    font-size: 0.88rem;
+    min-height: 42px;
   }
 
   /* Insights grid stacked on mobile */
@@ -3464,11 +3751,13 @@ body.modal-open {
 
   .tab-nav__btn {
     flex-direction: row;
+    flex: 0 0 auto;
     gap: 6px;
     padding: 12px 16px;
     font-size: 0.82rem;
     border-radius: var(--radius-md);
     min-width: auto;
+    height: auto;
   }
 
   .tab-nav__btn--active::after {
@@ -3480,14 +3769,14 @@ body.modal-open {
     border-radius: var(--radius-full) var(--radius-full) 0 0;
   }
 
-  /* No FAB on desktop */
-  .fab {
-    display: none;
-  }
-
   /* App shell doesn't need bottom padding for tab bar */
   .app-shell {
     padding-bottom: 40px;
+  }
+
+  /* FAB on desktop — no fixed tab bar at bottom */
+  .fab {
+    bottom: 24px;
   }
 
   /* Toast doesn't need offset for tab bar */
@@ -4612,6 +4901,89 @@ button:focus-visible {
 .trend-chart__change.trend-down {
   background: var(--color-success-bg);
   color: var(--color-success);
+}
+
+/* ── Daily Bar Chart (daily spending in trends) ─────────────────────────── */
+.daily-bar-chart {
+  width: 100%;
+  overflow: hidden;
+  animation: chartFadeIn 0.35s ease;
+}
+
+.daily-bar-chart__svg {
+  width: 100%;
+  height: auto;
+  max-height: 160px;
+}
+
+.daily-bar {
+  fill: var(--color-accent-start);
+  opacity: 0.65;
+  transition: opacity 0.15s ease;
+}
+
+.daily-bar:hover {
+  opacity: 1;
+}
+
+.daily-bar--today {
+  fill: var(--color-primary);
+  opacity: 1;
+}
+
+.daily-bar--zero {
+  fill: var(--border-color);
+  opacity: 0.3;
+}
+
+.daily-bar__label,
+.daily-bar__label--today {
+  font-size: 7px;
+  fill: var(--text-faint);
+  font-weight: 500;
+}
+
+.daily-bar__label--today {
+  fill: var(--color-primary);
+  font-weight: 800;
+}
+
+.daily-bar__day-name {
+  font-size: 6px;
+  fill: var(--text-faint);
+  font-weight: 400;
+}
+
+.daily-spending__stats {
+  display: flex;
+  justify-content: space-around;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.daily-spending__stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.daily-spending__stat-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.daily-spending__stat-value {
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.daily-spending__stat-value--peak {
+  color: var(--color-danger, #dc2626);
 }
 
 /* ── Daily Heatmap ───────────────────────────────────────────────────────── */
@@ -5877,6 +6249,29 @@ button:focus-visible {
   background: linear-gradient(135deg, var(--color-accent-start), var(--color-accent-end));
   color: #fff;
   border: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.summary-card--hero::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  right: -50%;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.15) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.summary-card--hero::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
 }
 
 .summary-card--hero .summary-card__label {
@@ -6532,12 +6927,27 @@ textarea.chat-input::placeholder {
 /* ── Page Transitions ──────────────────────────────────────────────────────── */
 .tab-panel {
   animation: none;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity 0.22s ease, transform 0.22s ease;
 }
 
 .tab-panel--entering {
   opacity: 0;
   transform: translateY(6px);
+}
+
+.tab-slide--left {
+  opacity: 0;
+  transform: translateX(30px);
+}
+
+.tab-slide--right {
+  opacity: 0;
+  transform: translateX(-30px);
+}
+
+.tab-panel--active {
+  opacity: 1;
+  transform: translateX(0);
 }
 
 /* ── Ripple Effect ─────────────────────────────────────────────────────────── */
@@ -6715,40 +7125,34 @@ textarea.chat-input::placeholder {
   to { transform: translateX(-50%) scaleX(1); }
 }
 
-/* ── Enhanced FAB ──────────────────────────────────────────────────────────── */
-.fab {
-  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease;
+
+/* ── Swipe-to-Delete on History Items ──────────────────────────────────────── */
+.history-item.swiping {
+  overflow: visible !important;
 }
 
-.fab:hover {
-  transform: scale(1.08);
-  box-shadow: 0 8px 28px rgba(7, 94, 84, 0.4);
-}
-
-.fab:active {
-  transform: scale(0.94);
-}
-
-/* ── Enhanced History Items (swipe hint) ───────────────────────────────────── */
-.history-item {
-  transition: transform 0.2s ease, opacity 0.2s ease;
-  position: relative;
-  overflow: hidden;
-}
-
-.history-item::before {
-  content: "";
+.history-item.swiping::after {
+  content: "Delete";
   position: absolute;
   top: 0;
-  right: -60px;
-  width: 60px;
+  right: 0;
+  width: 90px;
   height: 100%;
-  background: var(--color-danger);
+  background: var(--color-danger, #ef4444);
+  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: right 0.2s ease;
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  border-radius: 0 14px 14px 0;
+  transform: translateX(100%);
+  pointer-events: none;
+}
+
+.history-item--delete-ready.swiping::after {
+  background: #dc2626;
 }
 
 /* ── Enhanced Modals ───────────────────────────────────────────────────────── */
@@ -6849,6 +7253,38 @@ textarea.chat-input::placeholder {
   100% { background-position: -200% 0; }
 }
 
+/* ── Custom Chart Tooltip ──────────────────────────────────────────────────── */
+.chart-tooltip {
+  position: fixed;
+  z-index: 9999;
+  padding: 8px 14px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.4;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.chart-tooltip--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+[data-theme="dark"] .chart-tooltip {
+  background: rgba(22, 33, 62, 0.95);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
 /* ── Enhanced Toast ────────────────────────────────────────────────────────── */
 .toast {
   backdrop-filter: blur(12px);
@@ -6858,11 +7294,14 @@ textarea.chat-input::placeholder {
 /* ── Reduced motion preference ─────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .tab-panel--entering,
+  .tab-slide--left,
+  .tab-slide--right,
   .ripple-effect,
   .success-burst,
   .insight-card,
   .history-item,
-  .budget-item {
+  .budget-item,
+  .empty-state--unified {
     animation: none !important;
     transition: none !important;
   }
@@ -6874,6 +7313,10 @@ textarea.chat-input::placeholder {
 
   .insights-tab-content {
     animation: none !important;
+  }
+
+  .tab-panel {
+    transition: none !important;
   }
 }
 
@@ -6926,4 +7369,5 @@ textarea.chat-input::placeholder {
     font-size: 0.65rem;
     padding: 6px 8px;
   }
+
 }

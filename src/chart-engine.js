@@ -218,3 +218,59 @@ export function renderDailyHeatmap(dailyData, currentMonth, formatAmount, year, 
     </div>
   `;
 }
+
+export function renderDailyBarChart(dailyPoints, formatAmount, todayDay, year, month) {
+  if (!dailyPoints.length) return "";
+
+  const maxVal = Math.max(...dailyPoints.map((d) => d.value));
+  if (maxVal === 0) return "";
+
+  const padding = { top: 14, right: 8, bottom: 36, left: 8 };
+  const width = 420, height = 150;
+  const chartW = width - padding.left - padding.right;
+  const chartH = height - padding.top - padding.bottom;
+  const barGap = 1;
+  const barWidth = Math.max(3, (chartW - barGap * dailyPoints.length) / dailyPoints.length);
+
+  const gridLines = [];
+  for (let i = 0; i <= 3; i++) {
+    const y = padding.top + (i / 3) * chartH;
+    gridLines.push(`<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--border-color)" stroke-width="0.5" stroke-dasharray="3,3"/>`);
+  }
+
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const bars = dailyPoints.map((d, i) => {
+    const barH = maxVal > 0 ? (d.value / maxVal) * chartH : 0;
+    const x = padding.left + i * (barWidth + barGap);
+    const y = padding.top + chartH - barH;
+    const isToday = d.day === todayDay;
+    const cls = isToday ? "daily-bar--today" : d.value === 0 ? "daily-bar--zero" : "";
+    const date = new Date(year, month - 1, d.day);
+    const dayName = dayNames[date.getDay()];
+    const amountStr = d.value > 0 ? formatAmount(d.value) : "No spend";
+    const tooltip = `${dayName}, ${d.day} — ${esc(amountStr)}`;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(0, barH).toFixed(1)}" rx="1.5" class="daily-bar ${cls}" aria-label="${tooltip}"><title>${tooltip}</title></rect>`;
+  });
+
+  // Label every 5th day + day 1 + today, showing day number and abbreviated day name
+  const labels = dailyPoints.filter((d) => d.day === 1 || d.day % 5 === 0 || d.day === todayDay).map((d) => {
+    const idx = d.day - 1;
+    const x = padding.left + idx * (barWidth + barGap) + barWidth / 2;
+    const date = new Date(year, month - 1, d.day);
+    const dayName = dayNames[date.getDay()].charAt(0);
+    const isToday = d.day === todayDay;
+    const cls = isToday ? "daily-bar__label--today" : "daily-bar__label";
+    return `<text x="${x.toFixed(1)}" y="${height - 14}" text-anchor="middle" class="${cls}">${d.day}</text><text x="${x.toFixed(1)}" y="${height - 4}" text-anchor="middle" class="daily-bar__day-name">${dayName}</text>`;
+  });
+
+  return `
+    <div class="daily-bar-chart">
+      <svg viewBox="0 0 ${width} ${height}" class="daily-bar-chart__svg" role="img" aria-label="Daily spending bar chart" preserveAspectRatio="xMidYMid meet">
+        ${gridLines.join("")}
+        ${bars.join("")}
+        ${labels.join("")}
+      </svg>
+    </div>
+  `;
+}

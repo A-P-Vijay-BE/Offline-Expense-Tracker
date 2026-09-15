@@ -9,6 +9,7 @@ import {
   haptic,
   showSuccessAnimation,
   initSwipeNavigation,
+  initSwipeToDelete,
 } from "./ui-enhancements.js";
 import {
   createUserWithEmailAndPassword,
@@ -351,6 +352,29 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+const CATEGORY_COLORS = {
+  Food: "#ef4444", Groceries: "#f59e0b", Bills: "#8b5cf6", Transport: "#06b6d4",
+  Shopping: "#ec4899", Health: "#10b981", Entertainment: "#f97316", Education: "#3b82f6",
+  Salary: "#22c55e", Income: "#25d366", Other: "#6b7280",
+};
+function getCategoryColor(category) {
+  return CATEGORY_COLORS[category] || CATEGORY_COLORS.Other;
+}
+
+const EMPTY_STATE_ICONS = {
+  transactions: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>',
+  search: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  accounts: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg>',
+  chart: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
+  insights: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  recurring: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>',
+  activity: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
+};
+function renderEmptyState(icon, text) {
+  const svg = EMPTY_STATE_ICONS[icon] || EMPTY_STATE_ICONS.transactions;
+  return `<div class="empty-state empty-state--unified">${svg}<p>${text}</p></div>`;
+}
+
 function showMessage(element, text, isError = false) {
   if (!element) return;
   element.textContent = text;
@@ -367,10 +391,17 @@ function clearFieldError(fieldEl, errorEl) {
   if (fieldEl) fieldEl.classList.remove("tx-field--error", "form-field--error", "tx-amount-group--error");
 }
 
-function showToast(text) {
+function showToast(text, type = "info") {
   if (undoTimeout) { clearTimeout(undoTimeout); undoTransactions = []; }
   el.toast.className = "toast";
-  el.toast.textContent = text;
+  el.toast.classList.add(`toast--${type}`);
+  const icons = {
+    success: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    warning: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    info: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  };
+  el.toast.innerHTML = `<span class="toast__icon">${icons[type] || icons.info}</span><span class="toast__text">${escapeHtml(text)}</span>`;
   el.toast.classList.remove("hidden");
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => {
@@ -451,6 +482,12 @@ function applyUserName() {
   const nameInput = document.querySelector("#displayNameInput");
 
   const greeting = getTimeGreeting();
+  const greetingEl = document.querySelector("#dashboardGreeting");
+  if (greetingEl) {
+    greetingEl.classList.remove("dashboard-greeting--morning", "dashboard-greeting--afternoon", "dashboard-greeting--evening");
+    const hour = new Date().getHours();
+    greetingEl.classList.add(hour < 12 ? "dashboard-greeting--morning" : hour < 17 ? "dashboard-greeting--afternoon" : "dashboard-greeting--evening");
+  }
 
   if (userName) {
     if (topbarGreeting) topbarGreeting.textContent = greeting;
@@ -501,13 +538,37 @@ const tabs = [
   { btn: el.tabInsights, panel: el.panelInsights, key: "insights" },
 ];
 
+let currentTabIndex = 0;
 function switchTab(key) {
+  const prevIndex = currentTabIndex;
+  const newIndex = tabs.findIndex((t) => t.key === key);
+  const direction = newIndex > prevIndex ? "left" : "right";
+  currentTabIndex = newIndex >= 0 ? newIndex : 0;
+
   for (const tab of tabs) {
     const isActive = tab.key === key;
     tab.btn.classList.toggle("tab-nav__btn--active", isActive);
     tab.btn.setAttribute("aria-selected", String(isActive));
-    tab.panel.classList.toggle("tab-panel--active", isActive);
-    tab.panel.hidden = !isActive;
+    if (isActive && tab.panel.hidden) {
+      tab.panel.hidden = false;
+      tab.panel.classList.add("tab-panel--active");
+      tab.panel.classList.remove("tab-slide--left", "tab-slide--right");
+      tab.panel.classList.add(`tab-slide--${direction}`);
+      requestAnimationFrame(() => {
+        tab.panel.classList.remove(`tab-slide--${direction}`);
+      });
+    } else if (!isActive) {
+      tab.panel.classList.remove("tab-panel--active", "tab-slide--left", "tab-slide--right");
+      tab.panel.hidden = true;
+    }
+  }
+  if (key === "dashboard" && prevIndex !== newIndex) {
+    const todayVal = Number(el.todayTotal?._lastVal) || 0;
+    const monthVal = Number(el.monthTotal?._lastVal) || 0;
+    const incomeVal = Number(el.incomeTotal?._lastVal) || 0;
+    if (todayVal) animateValue(el.todayTotal, 0, todayVal);
+    if (monthVal) animateValue(el.monthTotal, 0, monthVal);
+    if (incomeVal) animateValue(el.incomeTotal, 0, incomeVal);
   }
   putSetting("lastTab", key);
   trackScreen(key);
@@ -613,6 +674,7 @@ function renderInsightsForTab(tab) {
       break;
     case "trends":
       renderTrendChart();
+      renderDailySpendingChart();
       renderIncomeExpenseChart();
       break;
     case "analysis":
@@ -806,7 +868,7 @@ function renderRecurring() {
   const paused = cachedRecurring.filter((r) => r.paused && !r.deleted);
 
   if (!active.length && !paused.length) {
-    list.innerHTML = '<p class="empty-state">No recurring transactions. Use "Repeat" option when adding a transaction.</p>';
+    list.innerHTML = renderEmptyState("recurring", "No recurring transactions yet. Use the <strong>Repeat</strong> option when adding a transaction.");
     return;
   }
 
@@ -836,7 +898,7 @@ function renderRecentTransactions() {
   if (!el.recentTransactions) return;
   const recent = getVisibleExpenses().slice(0, 5);
   if (!recent.length) {
-    el.recentTransactions.innerHTML = '<p class="empty-state">No transactions yet.</p>';
+    el.recentTransactions.innerHTML = renderEmptyState("transactions", "No transactions yet. Tap <strong>+</strong> to add your first expense.");
     return;
   }
   el.recentTransactions.innerHTML = recent.map((item) => renderTransactionItem(item)).join("");
@@ -859,7 +921,7 @@ async function renderCategories() {
   const sorted = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1]);
 
   if (!sorted.length) {
-    el.categoryChart.innerHTML = '<p class="empty-state">No expense data for this month.</p>';
+    el.categoryChart.innerHTML = renderEmptyState("chart", "No expense data for this month.");
     return;
   }
 
@@ -929,6 +991,65 @@ async function renderTrendChart() {
     <div class="trend-chart__footer">
       <span>This month: <strong>${escapeHtml(formatMoney(curr))}</strong></span>
       <span class="trend-chart__change ${changeClass}">${escapeHtml(changeLabel)} vs last month</span>
+    </div>
+  `;
+}
+
+// ── Daily Spending Bar Chart (current month in Trends) ─────────────────────
+async function renderDailySpendingChart() {
+  const container = document.querySelector("#dailySpendingChart");
+  const heading = document.querySelector("#dailySpendingHeading");
+  if (!container) return;
+
+  const { renderDailyBarChart } = await import("./chart-engine.js");
+  const visible = getVisibleExpenses();
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const currentMonthKey = `${year}-${String(month).padStart(2, "0")}`;
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const todayDay = now.getDate();
+  const monthName = now.toLocaleDateString(appSettings.locale, { month: "long", year: "numeric" });
+
+  if (heading) heading.textContent = `Daily Spending — ${monthName}`;
+
+  const dailyTotals = new Array(daysInMonth).fill(0);
+  for (const item of visible) {
+    const t = normalizeType(item.type);
+    if (t !== "debit") continue;
+    const mk = String(item.dateKey).slice(0, 7);
+    if (mk !== currentMonthKey) continue;
+    const day = parseInt(String(item.dateKey).slice(8, 10), 10);
+    if (day >= 1 && day <= daysInMonth) dailyTotals[day - 1] += Number(item.amount);
+  }
+
+  const total = dailyTotals.reduce((s, v) => s + v, 0);
+  if (total === 0) {
+    container.innerHTML = `<p class="trend-chart__placeholder">No spending recorded this month yet.</p>`;
+    return;
+  }
+
+  const dataPoints = dailyTotals.map((val, i) => ({ day: i + 1, value: val }));
+  const avgPerDay = total / todayDay;
+  const peakDay = dataPoints.reduce((a, b) => b.value > a.value ? b : a, dataPoints[0]);
+  const peakDate = new Date(year, month - 1, peakDay.day);
+  const peakLabel = peakDate.toLocaleDateString(appSettings.locale, { weekday: "short", day: "numeric" });
+
+  container.innerHTML = `
+    ${renderDailyBarChart(dataPoints, formatMoney, todayDay, year, month)}
+    <div class="daily-spending__stats">
+      <div class="daily-spending__stat">
+        <span class="daily-spending__stat-label">Total</span>
+        <strong class="daily-spending__stat-value">${escapeHtml(formatMoney(total))}</strong>
+      </div>
+      <div class="daily-spending__stat">
+        <span class="daily-spending__stat-label">Avg/day</span>
+        <strong class="daily-spending__stat-value">${escapeHtml(formatMoney(avgPerDay))}</strong>
+      </div>
+      <div class="daily-spending__stat">
+        <span class="daily-spending__stat-label">Peak (${escapeHtml(peakLabel)})</span>
+        <strong class="daily-spending__stat-value daily-spending__stat-value--peak">${escapeHtml(formatMoney(peakDay.value))}</strong>
+      </div>
     </div>
   `;
 }
@@ -1429,7 +1550,7 @@ async function renderInsights() {
   const insights = generateInsights(cachedExpenses, cachedAccounts, cachedBudgets, formatMoney);
 
   if (!insights.length) {
-    container.innerHTML = '<p class="empty-state">Add more transactions to see spending insights.</p>';
+    container.innerHTML = renderEmptyState("insights", "Add more transactions to see spending insights.");
     return;
   }
 
@@ -1523,6 +1644,7 @@ function renderTransactionItem(item) {
 
   const accountName = getAccountName(item.accountId || item.fromAccountId || item.toAccountId);
   const isCredit = type === "credit";
+  const catColor = getCategoryColor(item.category);
   return `
     <article class="history-item" data-id="${escapeHtml(item.id)}">
       <div class="history-main">
@@ -1535,6 +1657,7 @@ function renderTransactionItem(item) {
         <p>${escapeHtml(item.description || "")}</p>
         <div class="history-meta">
           <span>${escapeHtml(formatDate(item.dateKey))}</span>
+          ${item.category ? `<span class="category-tag"><span class="category-dot" style="background:${catColor}"></span>${escapeHtml(item.category)}</span>` : ""}
           ${accountName ? `<span class="account-tag">${escapeHtml(accountName)}</span>` : ""}
           <span class="sync-${escapeHtml(item.syncStatus)}">${escapeHtml(syncLabel)}</span>
           ${repeatBadge}
@@ -1600,7 +1723,7 @@ function renderHistory() {
   }
 
   if (!filtered.length) {
-    el.historyList.innerHTML = '<p class="empty-state">No matching records.</p>';
+    el.historyList.innerHTML = renderEmptyState("search", "No matching records found.");
     if (historyEndMarker) historyEndMarker.classList.add("hidden");
     return;
   }
@@ -1950,14 +2073,14 @@ async function handleTransactionSubmit(event) {
 // ── Quick Add ───────────────────────────────────────────────────────────────
 async function handleQuickAdd() {
   const text = el.quickAddInput.value.trim();
-  if (!text) { showToast("Type something like: Lunch 150 UPI"); return; }
+  if (!text) { showToast("Type something like: Lunch 150 UPI", "warning"); return; }
 
   const parsed = parseExpense(text);
-  if (!parsed.valid) { showToast(parsed.error); return; }
+  if (!parsed.valid) { showToast(parsed.error, "error"); return; }
 
   const activeAccounts = cachedAccounts.filter((a) => a.archived !== true);
   const accountId = defaultAccountId || (activeAccounts.length ? activeAccounts[0].id : null);
-  if (!accountId) { showToast("Create an account first."); return; }
+  if (!accountId) { showToast("Create an account first.", "warning"); return; }
 
   const now = new Date().toISOString();
   const txType = parsed.type === "income" ? "credit" : "debit";
@@ -1987,7 +2110,7 @@ async function handleQuickAdd() {
   await refreshUI();
   haptic("success");
   showSuccessAnimation(document.querySelector(".add-panel"));
-  showToast(`${txType === "credit" ? "Credit" : "Debit"} of ${formatMoney(parsed.amount)} saved.`);
+  showToast(`${txType === "credit" ? "Credit" : "Debit"} of ${formatMoney(parsed.amount)} saved.`, "success");
   syncPendingRecords();
 }
 
@@ -2151,19 +2274,20 @@ async function saveEditedTransaction() {
     openModal(el.accountActivityModal);
   }
   syncPendingRecords();
-  showToast("Transaction updated.");
+  showToast("Transaction updated.", "success");
 }
 
 async function deleteExpense(id) {
   const existing = await getExpense(id);
-  if (!existing) return;
+  if (!existing) return false;
   const confirmed = await showConfirm("Delete Transaction", `Delete "${existing.description || "this transaction"}"?`);
-  if (!confirmed) return;
+  if (!confirmed) return false;
 
   await putExpense({ ...existing, deleted: true, updatedAt: new Date().toISOString(), syncStatus: "pending", lastSyncError: "" });
   logAudit("expense", id, "delete", existing, null);
   await refreshUI();
   syncPendingRecords();
+  return true;
 }
 
 // ── Accounts Rendering ──────────────────────────────────────────────────────
@@ -2214,7 +2338,7 @@ function renderAccounts() {
   }
 
   if (!cachedAccounts.length) {
-    el.accountsList.innerHTML = '<p class="empty-state">No accounts yet. Add an account to track balances.</p>';
+    el.accountsList.innerHTML = renderEmptyState("accounts", "No accounts yet. Tap <strong>Add Account</strong> to start tracking.");
     return;
   }
 
@@ -2352,7 +2476,7 @@ async function saveAccount() {
   closeModal(el.accountModal);
   await refreshUI();
   syncPendingRecords();
-  showToast(`Account "${name}" ${editingAccountId ? "updated" : "created"}.`);
+  showToast(`Account "${name}" ${editingAccountId ? "updated" : "created"}.`, "success");
 
   // Close onboarding if active
   if (el.onboardingOverlay && !el.onboardingOverlay.classList.contains("hidden")) {
@@ -2508,62 +2632,85 @@ function renderAccountActivity(accountId) {
   }
 
   const balanceMap = calculateBalanceAfterEachTransaction(account, cachedExpenses);
-  let html = "";
-  let lastDateKey = "";
 
+  // Group transactions by date
+  const dayGroups = [];
+  let currentGroup = null;
   for (const item of transactions) {
-    // Date divider
-    if (item.dateKey !== lastDateKey) {
-      lastDateKey = item.dateKey;
-      html += `<div class="chat-date-divider"><span>${escapeHtml(formatDateGroup(item.dateKey))}</span></div>`;
+    if (!currentGroup || item.dateKey !== currentGroup.dateKey) {
+      currentGroup = { dateKey: item.dateKey, items: [], debit: 0, credit: 0 };
+      dayGroups.push(currentGroup);
     }
+    currentGroup.items.push(item);
+    const t = normalizeType(item.type);
+    if (t === "debit") currentGroup.debit += Number(item.amount);
+    else if (t === "credit") currentGroup.credit += Number(item.amount);
+  }
 
-    const type = normalizeType(item.type);
-    const balanceAfter = balanceMap.get(item.id);
-    const balanceStr = balanceAfter != null ? formatMoney(balanceAfter) : "";
+  let html = "";
 
-    if (type === "adjustment") {
-      const effect = Number(item.balanceEffect || 0);
+  for (const group of dayGroups) {
+    html += `<div class="chat-date-divider"><span>${escapeHtml(formatDateGroup(group.dateKey))}</span></div>`;
+
+    for (const item of group.items) {
+      const type = normalizeType(item.type);
+      const balanceAfter = balanceMap.get(item.id);
+      const balanceStr = balanceAfter != null ? formatMoney(balanceAfter) : "";
+
+      if (type === "adjustment") {
+        const effect = Number(item.balanceEffect || 0);
+        html += `
+          <div class="chat-bubble chat-bubble--adjustment">
+            Balance corrected ${effect >= 0 ? "+" : ""}${escapeHtml(formatMoney(effect))}
+            ${item.reason ? ` &mdash; ${escapeHtml(item.reason)}` : ""}
+          </div>
+        `;
+        continue;
+      }
+
+      if (type === "transfer") {
+        const fromName = getAccountName(item.fromAccountId);
+        const toName = getAccountName(item.toAccountId);
+        const direction = item.fromAccountId === accountId ? "out" : "in";
+        html += `
+          <div class="chat-bubble chat-bubble--transfer">
+            Transfer ${escapeHtml(formatMoney(item.amount))} ${direction === "out" ? `to ${escapeHtml(toName)}` : `from ${escapeHtml(fromName)}`}
+            ${item.description ? ` &mdash; ${escapeHtml(item.description)}` : ""}
+          </div>
+        `;
+        continue;
+      }
+
+      const isDebit = type === "debit";
+      const bubbleClass = isDebit ? "chat-bubble--debit" : "chat-bubble--credit";
+      const badgeClass = isDebit ? "chat-bubble__type-badge--debit" : "chat-bubble__type-badge--credit";
+      const sign = isDebit ? "-" : "+";
+      const typeLabel = isDebit ? "DEBIT" : "CREDIT";
+
       html += `
-        <div class="chat-bubble chat-bubble--adjustment">
-          Balance corrected ${effect >= 0 ? "+" : ""}${escapeHtml(formatMoney(effect))}
-          ${item.reason ? ` &mdash; ${escapeHtml(item.reason)}` : ""}
+        <div class="chat-bubble ${bubbleClass}" data-id="${escapeHtml(item.id)}" data-searchtext="${escapeHtml((item.description || "").toLowerCase() + " " + (item.category || "").toLowerCase() + " " + item.amount)}">
+          <span class="chat-bubble__amount">${sign}${escapeHtml(formatMoney(item.amount))}</span>
+          <span class="chat-bubble__desc">${escapeHtml(item.description || item.category || "")}</span>
+          <div class="chat-bubble__meta">
+            <span class="chat-bubble__type-badge ${badgeClass}">${typeLabel}</span>
+            <span>${escapeHtml(item.category || "")}</span>
+            <span>${escapeHtml(new Date(item.occurredAt || item.dateKey).toLocaleTimeString(appSettings.locale, { hour: "2-digit", minute: "2-digit" }))}</span>
+            ${balanceStr ? `<span class="chat-bubble__balance">Bal: ${escapeHtml(balanceStr)}</span>` : ""}
+          </div>
         </div>
       `;
-      continue;
     }
 
-    if (type === "transfer") {
-      const fromName = getAccountName(item.fromAccountId);
-      const toName = getAccountName(item.toAccountId);
-      const direction = item.fromAccountId === accountId ? "out" : "in";
-      html += `
-        <div class="chat-bubble chat-bubble--transfer">
-          Transfer ${escapeHtml(formatMoney(item.amount))} ${direction === "out" ? `to ${escapeHtml(toName)}` : `from ${escapeHtml(fromName)}`}
-          ${item.description ? ` &mdash; ${escapeHtml(item.description)}` : ""}
-        </div>
-      `;
-      continue;
+    // Day total at bottom of each group
+    if (group.debit > 0 || group.credit > 0) {
+      const parts = [];
+      if (group.debit > 0) parts.push(`<span class="day-total__debit">Spent: -${escapeHtml(formatMoney(group.debit))}</span>`);
+      if (group.credit > 0) parts.push(`<span class="day-total__credit">Received: +${escapeHtml(formatMoney(group.credit))}</span>`);
+      const net = group.credit - group.debit;
+      const netClass = net >= 0 ? "day-total__credit" : "day-total__debit";
+      parts.push(`<span class="${netClass}">Net: ${net >= 0 ? "+" : ""}${escapeHtml(formatMoney(Math.abs(net)))}</span>`);
+      html += `<div class="chat-day-total">${parts.join('<span class="day-total__sep">&middot;</span>')}</div>`;
     }
-
-    const isDebit = type === "debit";
-    const bubbleClass = isDebit ? "chat-bubble--debit" : "chat-bubble--credit";
-    const badgeClass = isDebit ? "chat-bubble__type-badge--debit" : "chat-bubble__type-badge--credit";
-    const sign = isDebit ? "-" : "+";
-    const typeLabel = isDebit ? "DEBIT" : "CREDIT";
-
-    html += `
-      <div class="chat-bubble ${bubbleClass}" data-id="${escapeHtml(item.id)}" data-searchtext="${escapeHtml((item.description || "").toLowerCase() + " " + (item.category || "").toLowerCase() + " " + item.amount)}">
-        <span class="chat-bubble__amount">${sign}${escapeHtml(formatMoney(item.amount))}</span>
-        <span class="chat-bubble__desc">${escapeHtml(item.description || item.category || "")}</span>
-        <div class="chat-bubble__meta">
-          <span class="chat-bubble__type-badge ${badgeClass}">${typeLabel}</span>
-          <span>${escapeHtml(item.category || "")}</span>
-          <span>${escapeHtml(new Date(item.occurredAt || item.dateKey).toLocaleTimeString(appSettings.locale, { hour: "2-digit", minute: "2-digit" }))}</span>
-          ${balanceStr ? `<span class="chat-bubble__balance">Bal: ${escapeHtml(balanceStr)}</span>` : ""}
-        </div>
-      </div>
-    `;
   }
 
   el.accountActivityList.innerHTML = html;
@@ -3114,7 +3261,7 @@ async function renderAuditLog(append = false) {
   const totalCount = await getAuditLogCount();
 
   if (!entries.length && !append) {
-    container.innerHTML = '<p class="empty-state" style="padding:0.75rem;margin:0;font-size:0.8rem;">No activity recorded yet.</p>';
+    container.innerHTML = renderEmptyState("activity", "No activity recorded yet.");
     if (loadMoreBtn) loadMoreBtn.classList.add("hidden");
     return;
   }
@@ -3199,8 +3346,8 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // Network
-window.addEventListener("online", () => { setNetworkBadge(); showToast("Online. Syncing..."); syncPendingRecords(); });
-window.addEventListener("offline", () => { setNetworkBadge(); showToast("Offline. Data saved locally."); });
+window.addEventListener("online", () => { setNetworkBadge(); showToast("Online. Syncing...", "success"); syncPendingRecords(); });
+window.addEventListener("offline", () => { setNetworkBadge(); showToast("Offline. Data saved locally.", "warning"); });
 
 // Install button
 el.installBtn.addEventListener("click", async () => {
@@ -3550,7 +3697,7 @@ if (scanSaveBtn) scanSaveBtn.addEventListener("click", async () => {
   logAudit("expense", transaction.id, "create", null, transaction);
   scanResult.classList.add("hidden");
   await refreshUI();
-  showToast(`Saved: ${formatMoney(amount)} — ${description || category}`);
+  showToast(`Saved: ${formatMoney(amount)} — ${description || category}`, "success");
   syncPendingRecords();
 });
 
@@ -3856,12 +4003,59 @@ async function checkStorageQuota() {
   }
 }
 
+function initChartTooltips() {
+  let tip = document.querySelector(".chart-tooltip");
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.className = "chart-tooltip";
+    document.body.appendChild(tip);
+  }
+  let hideTimer;
+  function show(text, x, y) {
+    clearTimeout(hideTimer);
+    tip.textContent = text;
+    tip.classList.add("chart-tooltip--visible");
+    const rect = tip.getBoundingClientRect();
+    const left = Math.min(x - rect.width / 2, window.innerWidth - rect.width - 8);
+    tip.style.left = `${Math.max(8, left)}px`;
+    tip.style.top = `${y - rect.height - 10}px`;
+  }
+  function hide() {
+    hideTimer = setTimeout(() => tip.classList.remove("chart-tooltip--visible"), 120);
+  }
+  document.addEventListener("pointerover", (e) => {
+    const target = e.target.closest("[data-tooltip], .donut-segment, .daily-bar, .line-chart__dot, .ie-bar__bar");
+    if (!target) return;
+    const title = target.querySelector("title");
+    const text = target.dataset.tooltip || (title ? title.textContent : "");
+    if (!text) return;
+    if (title) { target.dataset.tooltip = text; title.remove(); }
+    const r = target.getBoundingClientRect();
+    show(text, r.left + r.width / 2, r.top);
+  });
+  document.addEventListener("pointerout", (e) => {
+    if (e.target.closest("[data-tooltip], .donut-segment, .daily-bar, .line-chart__dot, .ie-bar__bar")) hide();
+  });
+  document.addEventListener("touchstart", (e) => {
+    const target = e.target.closest("[data-tooltip], .donut-segment, .daily-bar, .line-chart__dot, .ie-bar__bar");
+    if (!target) { hide(); return; }
+    const text = target.dataset.tooltip;
+    if (!text) return;
+    const r = target.getBoundingClientRect();
+    show(text, r.left + r.width / 2, r.top);
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hide, 2000);
+  }, { passive: true });
+}
+
 async function initialize() {
   initRippleEffect();
   initPageTransitions();
   initScrollHeader();
   initPullToRefresh(() => refreshUI());
   initSwipeNavigation(tabs, switchTab);
+  initSwipeToDelete(el.historyList, deleteExpense);
+  initChartTooltips();
   initInsightsSubtabs();
   await initDarkMode();
   await loadDefaultAccount();
@@ -3922,5 +4116,5 @@ async function initialize() {
 
 initialize().catch((error) => {
   console.error(error);
-  showToast("Application startup failed. Check the console.");
+  showToast("Application startup failed. Check the console.", "error");
 });

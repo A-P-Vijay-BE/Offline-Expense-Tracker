@@ -10,7 +10,10 @@
     <meta name="theme-color" content="#1a1a2e" media="(prefers-color-scheme: dark)" />
     <meta name="description" content="Offline-first personal expense tracker" />
     <meta name="color-scheme" content="light dark" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.cloudfunctions.net wss://*.firebaseio.com; img-src 'self' blob: data:; worker-src 'self' blob:; font-src 'self';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.cloudfunctions.net wss://*.firebaseio.com; img-src 'self' blob: data:; worker-src 'self' blob:; font-src 'self' https://fonts.gstatic.com;" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <title>My Expenses</title>
   </head>
@@ -950,6 +953,18 @@
               </div>
             </section>
 
+            <section class="insights-section" aria-label="Daily spending this month">
+              <div class="section-heading">
+                <h2 id="dailySpendingHeading">Daily Spending</h2>
+              </div>
+              <div id="dailySpendingChart" class="daily-spending-chart">
+                <div class="insights-empty-state insights-empty-state--small">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                  <p>Add expenses this month to see daily spending.</p>
+                </div>
+              </div>
+            </section>
+
             <section class="insights-section" aria-label="Income vs Expense">
               <div class="section-heading">
                 <h2>Income vs Expense</h2>
@@ -992,22 +1007,22 @@
         </div>
       </section>
 
-      <!-- ── Mobile FAB (Floating Action Button) ───────────────────── -->
-      <button
-        id="fabBtn"
-        type="button"
-        class="fab"
-        title="Add transaction"
-        aria-label="Add transaction"
-        data-action="fab-add"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <line x1="12" y1="5" x2="12" y2="19"/>
-          <line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-      </button>
-
     </main>
+
+    <!-- ── Global FAB (Floating Action Button) ─── always visible, outside main ── -->
+    <button
+      id="fabBtn"
+      type="button"
+      class="fab"
+      title="Add transaction"
+      aria-label="Add transaction"
+      data-action="fab-add"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="12" y1="5" x2="12" y2="19"/>
+        <line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+    </button>
 
     <!-- ── Filter Bottom Sheet (mobile) ──────────────────────────────── -->
     <div id="filterSheet" class="bottom-sheet hidden" role="dialog" aria-modal="true" aria-label="Filter transactions">
