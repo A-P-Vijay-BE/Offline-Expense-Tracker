@@ -178,10 +178,23 @@ const el = {
   // Dashboard
   todayTotal: document.querySelector("#todayTotal"),
   monthTotal: document.querySelector("#monthTotal"),
-  incomeTotal: document.querySelector("#incomeTotal"),
-  totalAvailable: document.querySelector("#totalAvailable"),
-  avgDailySpend: document.querySelector("#avgDailySpend"),
   savingsRate: document.querySelector("#savingsRate"),
+  heroBalance: document.querySelector("#heroBalance"),
+  heroBarFill: document.querySelector("#heroBarFill"),
+  healthBadge: document.querySelector("#healthBadge"),
+  healthBadgeText: document.querySelector("#healthBadgeText"),
+  daysLeftLabel: document.querySelector("#daysLeftLabel"),
+  heroIncome: document.querySelector("#heroIncome"),
+  heroSpent: document.querySelector("#heroSpent"),
+  dailyAvgCard: document.querySelector("#dailyAvgCard"),
+  incomeThisMonth: document.querySelector("#incomeThisMonth"),
+  incomeNextMonth: document.querySelector("#incomeNextMonth"),
+  incomeThisMonthName: document.querySelector("#incomeThisMonthName"),
+  incomeNextMonthName: document.querySelector("#incomeNextMonthName"),
+  txIncomeMonthGroup: document.querySelector("#txIncomeMonthGroup"),
+  insightCarousel: document.querySelector("#insightCarousel"),
+  insightTrack: document.querySelector("#insightTrack"),
+  insightDots: document.querySelector("#insightDots"),
   budgetList: document.querySelector("#budgetList"),
   recentTransactions: document.querySelector("#recentTransactions"),
   adjustmentsSummary: document.querySelector("#adjustmentsSummary"),
@@ -305,6 +318,7 @@ let lastSelectedAccountId = null;
 let confirmResolve = null;
 let undoTimeout = null;
 let undoTransactions = [];
+let insightInterval = null;
 let historyPageSize = 30;
 let historyDisplayCount = 30;
 
@@ -318,6 +332,12 @@ function localDateKey(date = new Date()) {
 
 function currentMonthKey() {
   return localDateKey().slice(0, 7);
+}
+
+function prevMonthKey() {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function formatMoney(amount) {
@@ -366,7 +386,7 @@ const CATEGORY_COLORS = {
   Entertainment: "#f97316",
   Education: "#3b82f6",
   Salary: "#22c55e",
-  Income: "#25d366",
+  Income: "#34d399",
   Other: "#6b7280",
 };
 function getCategoryColor(category) {
@@ -610,10 +630,10 @@ function switchTab(key) {
   if (key === "dashboard" && prevIndex !== newIndex) {
     const todayVal = Number(el.todayTotal?._lastVal) || 0;
     const monthVal = Number(el.monthTotal?._lastVal) || 0;
-    const incomeVal = Number(el.incomeTotal?._lastVal) || 0;
+    const heroVal = Number(el.heroBalance?._lastVal) || 0;
     if (todayVal) animateValue(el.todayTotal, 0, todayVal);
     if (monthVal) animateValue(el.monthTotal, 0, monthVal);
-    if (incomeVal) animateValue(el.incomeTotal, 0, incomeVal);
+    if (heroVal) animateValue(el.heroBalance, 0, heroVal);
   }
   if (el.fabBtn) {
     el.fabBtn.classList.toggle("fab--hidden", key === "add");
@@ -784,6 +804,7 @@ async function refreshUI() {
   balanceCache.clear();
   recomputeVisibleExpenses();
   renderSummary();
+  renderMotivation();
   renderBudgets();
   renderRecurring();
   renderRecentTransactions();
@@ -802,6 +823,7 @@ function renderSummary() {
   const visible = getVisibleExpenses();
   const today = localDateKey();
   const month = currentMonthKey();
+  const prevMo = prevMonthKey();
 
   const todayExpense = visible
     .filter((item) => normalizeType(item.type) === "debit" && item.dateKey === today)
@@ -812,35 +834,355 @@ function renderSummary() {
     .reduce((sum, item) => sum + Number(item.amount), 0);
 
   const monthIncome = visible
-    .filter((item) => normalizeType(item.type) === "credit" && String(item.dateKey).startsWith(month))
+    .filter((item) => {
+      if (normalizeType(item.type) !== "credit") return false;
+      if (item.forNextMonth === true) {
+        return String(item.dateKey).startsWith(prevMo);
+      }
+      return String(item.dateKey).startsWith(month);
+    })
     .reduce((sum, item) => sum + Number(item.amount), 0);
 
-  // Average daily spend
   const dayOfMonth = new Date().getDate();
   const avgDaily = dayOfMonth > 0 ? monthExpense / dayOfMonth : 0;
-
-  // Savings rate
   const savings = monthIncome > 0 ? Math.round(((monthIncome - monthExpense) / monthIncome) * 100) : 0;
 
+  // Quick stat tiles (animated)
   el.todayTotal._formatter = formatMoney;
   el.monthTotal._formatter = formatMoney;
-  el.incomeTotal._formatter = formatMoney;
 
   const prevToday = Number(el.todayTotal._lastVal) || 0;
   const prevMonth = Number(el.monthTotal._lastVal) || 0;
-  const prevIncome = Number(el.incomeTotal._lastVal) || 0;
 
   animateValue(el.todayTotal, prevToday, todayExpense);
   animateValue(el.monthTotal, prevMonth, monthExpense);
-  animateValue(el.incomeTotal, prevIncome, monthIncome);
 
   el.todayTotal._lastVal = todayExpense;
   el.monthTotal._lastVal = monthExpense;
-  el.incomeTotal._lastVal = monthIncome;
 
-  if (el.totalAvailable) el.totalAvailable.textContent = formatMoney(getTotalBalance());
-  if (el.avgDailySpend) el.avgDailySpend.textContent = formatMoney(avgDaily);
-  if (el.savingsRate) el.savingsRate.textContent = `${savings}%`;
+  if (el.dailyAvgCard) {
+    el.dailyAvgCard._formatter = formatMoney;
+    const prevAvg = Number(el.dailyAvgCard._lastVal) || 0;
+    animateValue(el.dailyAvgCard, prevAvg, avgDaily);
+    el.dailyAvgCard._lastVal = avgDaily;
+  }
+  if (el.savingsRate) {
+    el.savingsRate._formatter = (v) => `${Math.round(v)}%`;
+    const prevSav = Number(el.savingsRate._lastVal) || 0;
+    animateValue(el.savingsRate, prevSav, savings);
+    el.savingsRate._lastVal = savings;
+    el.savingsRate.style.color = savings < 0 ? "var(--color-danger)" : "";
+  }
+  const savSub = document.getElementById("savingsSub");
+  if (savSub) {
+    if (monthIncome <= 0) { savSub.textContent = "No income yet"; savSub.style.color = ""; }
+    else if (savings < 0) { savSub.textContent = "Spent more than earned"; savSub.style.color = "var(--color-danger)"; }
+    else if (savings >= 30) { savSub.textContent = "Great discipline!"; savSub.style.color = "var(--color-success)"; }
+    else { savSub.textContent = `${formatMoney(monthIncome - monthExpense)} saved`; savSub.style.color = ""; }
+  }
+
+  // Balance Hero Card
+  const available = getTotalBalance();
+  const pool = available + monthExpense;
+  const pct = pool > 0 ? Math.max(0, Math.min(100, Math.round((available / pool) * 100))) : 100;
+
+  if (el.heroBalance) {
+    el.heroBalance._formatter = formatMoney;
+    const prevBal = Number(el.heroBalance._lastVal) || 0;
+    animateValue(el.heroBalance, prevBal, available);
+    el.heroBalance._lastVal = available;
+  }
+  if (el.heroIncome) {
+    el.heroIncome._formatter = formatMoney;
+    const prevInc = Number(el.heroIncome._lastVal) || 0;
+    animateValue(el.heroIncome, prevInc, monthIncome);
+    el.heroIncome._lastVal = monthIncome;
+  }
+  if (el.heroSpent) {
+    el.heroSpent._formatter = formatMoney;
+    const prevSpent = Number(el.heroSpent._lastVal) || 0;
+    animateValue(el.heroSpent, prevSpent, monthExpense);
+    el.heroSpent._lastVal = monthExpense;
+  }
+
+  // Month-day progress bar + days remaining
+  const now = new Date();
+  const totalDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const currentDay = now.getDate();
+  const daysLeft = totalDays - currentDay;
+  const dayPct = Math.round((currentDay / totalDays) * 100);
+
+  if (el.heroBarFill) {
+    el.heroBarFill.style.width = `${dayPct}%`;
+    const barCls = dayPct <= 50 ? "hero-bar--healthy" : dayPct <= 80 ? "hero-bar--caution" : "hero-bar--danger";
+    el.heroBarFill.className = `balance-hero__bar-fill ${barCls}`;
+  }
+
+  // Health badge
+  if (el.healthBadge && el.healthBadgeText) {
+    let badge, cls;
+    if (pct > 60) { badge = "Healthy"; cls = "healthy"; }
+    else if (pct > 30) { badge = "On Track"; cls = "ontrack"; }
+    else if (pct > 10) { badge = "Watch It"; cls = "caution"; }
+    else { badge = "Low"; cls = "danger"; }
+    el.healthBadgeText.textContent = badge;
+    el.healthBadge.className = `balance-status-badge balance-status-badge--${cls}`;
+  }
+
+  if (el.daysLeftLabel) {
+    if (daysLeft === 0) {
+      el.daysLeftLabel.textContent = "Last day of the month";
+    } else {
+      el.daysLeftLabel.textContent = `Day ${currentDay} of ${totalDays} · ${daysLeft} day${daysLeft > 1 ? "s" : ""} left`;
+    }
+  }
+}
+
+// ── Motivation Card ─────────────────────────────────────────────────────────
+function getMotivation(visible, monthExpense, monthIncome, avgDaily) {
+  const today = localDateKey();
+  const month = currentMonthKey();
+  const prevMo = prevMonthKey();
+  const hour = new Date().getHours();
+  const dayOfMonth = new Date().getDate();
+
+  const allDays = new Set(visible.map((e) => e.dateKey));
+  let streak = 0;
+  const d = new Date();
+  if (!allDays.has(localDateKey(d))) d.setDate(d.getDate() - 1);
+  while (allDays.has(localDateKey(d))) { streak++; d.setDate(d.getDate() - 1); }
+
+  if (visible.length < 5) {
+    return { emoji: "\u{1F331}", text: "Track your first week", sub: "Insights unlock after 7 days of data" };
+  }
+
+  const daysSinceLastEntry = (() => {
+    const sorted = [...allDays].sort().reverse();
+    if (!sorted.length) return 999;
+    const last = sorted[0];
+    const diff = (new Date(today).getTime() - new Date(last).getTime()) / 86400000;
+    return Math.round(diff);
+  })();
+  if (daysSinceLastEntry >= 3) {
+    return { emoji: "\u{1F44B}", text: "Welcome back!", sub: "Your accounts are up to date" };
+  }
+
+  if (dayOfMonth === 1) {
+    const lastMonthDebits = visible
+      .filter((e) => normalizeType(e.type) === "debit" && String(e.dateKey).startsWith(prevMo))
+      .reduce((s, e) => s + Number(e.amount), 0);
+    const lastMonthCredits = visible
+      .filter((e) => normalizeType(e.type) === "credit" && String(e.dateKey).startsWith(prevMo))
+      .reduce((s, e) => s + Number(e.amount), 0);
+    const saved = lastMonthCredits - lastMonthDebits;
+    if (saved > 0) {
+      return { emoji: "\u{1F389}", text: "New month, fresh start!", sub: `You saved ${formatMoney(saved)} last month` };
+    }
+    return { emoji: "\u{2728}", text: "New month, new goals!", sub: "Start strong this month" };
+  }
+
+  const recentCredit = visible.find(
+    (e) => normalizeType(e.type) === "credit" && e.dateKey === today && Number(e.amount) > 5000
+  );
+  if (recentCredit) {
+    return { emoji: "\u{1F4B0}", text: "Income received!", sub: `${formatMoney(recentCredit.amount)} credited — plan your month` };
+  }
+
+  if (streak >= 3) {
+    return { emoji: "\u{1F525}", text: `${streak}-day streak!`, sub: "Consistent tracking builds better habits" };
+  }
+
+  const todayDebits = visible.filter((e) => normalizeType(e.type) === "debit" && e.dateKey === today);
+  if (todayDebits.length === 0 && hour >= 18) {
+    return { emoji: "\u{1F9D8}", text: "No-spend day so far", sub: avgDaily > 0 ? `That’s ${formatMoney(avgDaily)} saved!` : "Great restraint!" };
+  }
+
+  if (dayOfMonth >= 15 && monthIncome > 0) {
+    const rate = Math.round(((monthIncome - monthExpense) / monthIncome) * 100);
+    if (rate >= 40) {
+      return { emoji: "\u{1F3AF}", text: `${rate}% savings rate`, sub: "Excellent financial discipline!" };
+    }
+    if (rate >= 20) {
+      return { emoji: "\u{1F4AA}", text: `${rate}% saved this month`, sub: "You’re building a strong habit" };
+    }
+  }
+
+  const prevMonthDebits = visible
+    .filter((e) => normalizeType(e.type) === "debit" && String(e.dateKey).startsWith(prevMo))
+    .reduce((s, e) => s + Number(e.amount), 0);
+  if (dayOfMonth >= 20 && prevMonthDebits > 0) {
+    const projected = (monthExpense / dayOfMonth) * 30;
+    if (projected < prevMonthDebits * 0.9) {
+      const pctLess = Math.round((1 - projected / prevMonthDebits) * 100);
+      return { emoji: "\u{1F4C9}", text: `On track to spend ${pctLess}% less`, sub: "Great control compared to last month" };
+    }
+  }
+
+  const txCount = visible.filter((e) => String(e.dateKey).startsWith(month)).length;
+  if (txCount > 0) {
+    return { emoji: "\u{1F4DD}", text: `${txCount} entries this month`, sub: "Every entry gives you clearer insights" };
+  }
+
+  return { emoji: "\u{1F4A1}", text: "Track today’s spending", sub: "Small steps lead to big savings" };
+}
+
+function getAllInsights(visible, monthExpense, monthIncome, avgDaily) {
+  const insights = [];
+  const month = currentMonthKey();
+  const prevMo = prevMonthKey();
+  const dayOfMonth = new Date().getDate();
+
+  // 1. Primary motivation insight — always first
+  insights.push(getMotivation(visible, monthExpense, monthIncome, avgDaily));
+
+  // 2. Month-over-month spending comparison
+  const prevMonthDebits = visible
+    .filter((e) => normalizeType(e.type) === "debit" && String(e.dateKey).startsWith(prevMo))
+    .reduce((s, e) => s + Number(e.amount), 0);
+  if (prevMonthDebits > 0 && monthExpense > 0) {
+    const pctChange = Math.round(((monthExpense - prevMonthDebits) / prevMonthDebits) * 100);
+    if (pctChange < 0) {
+      insights.push({ emoji: "\u{1F4C9}", text: `You spent ${Math.abs(pctChange)}% less than last month`, sub: `Last month: ${formatMoney(prevMonthDebits)} vs this month: ${formatMoney(monthExpense)}` });
+    } else if (pctChange > 0) {
+      insights.push({ emoji: "\u{1F4C8}", text: `You spent ${pctChange}% more than last month`, sub: `Last month: ${formatMoney(prevMonthDebits)} vs this month: ${formatMoney(monthExpense)}` });
+    }
+  }
+
+  // 3. Top spending category this month
+  const monthDebits = visible.filter((e) => normalizeType(e.type) === "debit" && String(e.dateKey).startsWith(month));
+  if (monthDebits.length > 0) {
+    const catTotals = {};
+    monthDebits.forEach((e) => {
+      const cat = e.category || "Uncategorized";
+      catTotals[cat] = (catTotals[cat] || 0) + Number(e.amount);
+    });
+    const topCat = Object.entries(catTotals).sort((a, b) => b[1] - a[1])[0];
+    if (topCat) {
+      insights.push({ emoji: "\u{1F3F7}️", text: `Top category: ${escapeHtml(topCat[0])}`, sub: `${formatMoney(topCat[1])} spent this month` });
+    }
+  }
+
+  // 4. Budget remaining (if budgets exist)
+  if (cachedBudgets.length > 0) {
+    const totalBudget = cachedBudgets.reduce((s, b) => s + Number(b.amount), 0);
+    const remaining = totalBudget - monthExpense;
+    if (remaining > 0) {
+      insights.push({ emoji: "\u{1F4B3}", text: `${formatMoney(remaining)} remaining in budget`, sub: `${formatMoney(monthExpense)} of ${formatMoney(totalBudget)} used` });
+    } else if (remaining < 0) {
+      insights.push({ emoji: "⚠️", text: `Over budget by ${formatMoney(Math.abs(remaining))}`, sub: `Budget: ${formatMoney(totalBudget)} — Spent: ${formatMoney(monthExpense)}` });
+    }
+  }
+
+  // 5. No-spend streak
+  const allDays = new Set(
+    visible.filter((e) => normalizeType(e.type) === "debit").map((e) => e.dateKey)
+  );
+  let noSpendStreak = 0;
+  const d = new Date();
+  // Count consecutive days with no debit starting from today going backwards
+  while (!allDays.has(localDateKey(d))) {
+    noSpendStreak++;
+    d.setDate(d.getDate() - 1);
+    if (noSpendStreak > 365) break;
+  }
+  if (noSpendStreak > 0 && noSpendStreak <= 365) {
+    insights.push({ emoji: "\u{1F9D8}", text: `${noSpendStreak}-day no-spend streak`, sub: "Every zero-spend day boosts your savings" });
+  }
+
+  // 6. Savings rate
+  if (monthIncome > 0 && dayOfMonth >= 5) {
+    const savingsRate = Math.round(((monthIncome - monthExpense) / monthIncome) * 100);
+    if (savingsRate > 0) {
+      insights.push({ emoji: "\u{1F4B0}", text: `${savingsRate}% of income saved this month`, sub: `Saved ${formatMoney(monthIncome - monthExpense)} so far` });
+    }
+  }
+
+  // Return 2-5 insights max, filter duplicates by text
+  const seen = new Set();
+  const unique = insights.filter((i) => {
+    if (seen.has(i.text)) return false;
+    seen.add(i.text);
+    return true;
+  });
+  return unique.slice(0, 5);
+}
+
+function renderMotivation() {
+  if (!el.insightCarousel) return;
+  const visible = getVisibleExpenses();
+  const month = currentMonthKey();
+  const monthExpense = visible
+    .filter((e) => normalizeType(e.type) === "debit" && String(e.dateKey).startsWith(month))
+    .reduce((s, e) => s + Number(e.amount), 0);
+  const prevMo = prevMonthKey();
+  const monthIncome = visible
+    .filter((e) => {
+      if (normalizeType(e.type) !== "credit") return false;
+      if (e.forNextMonth === true) return String(e.dateKey).startsWith(prevMo);
+      return String(e.dateKey).startsWith(month);
+    })
+    .reduce((s, e) => s + Number(e.amount), 0);
+  const dayOfMonth = new Date().getDate();
+  const avgDaily = dayOfMonth > 0 ? monthExpense / dayOfMonth : 0;
+
+  const insights = getAllInsights(visible, monthExpense, monthIncome, avgDaily);
+
+  // Clear previous interval
+  if (insightInterval) {
+    clearInterval(insightInterval);
+    insightInterval = null;
+  }
+
+  // Populate slides
+  el.insightTrack.innerHTML = insights.map((ins, i) =>
+    `<div class="insight-slide${i === 0 ? " insight-slide--active" : ""}">` +
+      `<span class="insight-slide__emoji">${ins.emoji}</span>` +
+      `<div class="insight-slide__body">` +
+        `<p class="insight-slide__text">${escapeHtml(ins.text)}</p>` +
+        `<p class="insight-slide__sub">${escapeHtml(ins.sub)}</p>` +
+      `</div>` +
+    `</div>`
+  ).join("");
+
+  // Populate dots (only if more than 1 insight)
+  if (insights.length > 1) {
+    el.insightDots.innerHTML = insights.map((_, i) =>
+      `<button class="insight-dot${i === 0 ? " insight-dot--active" : ""}" data-index="${i}" aria-label="Insight ${i + 1}"></button>`
+    ).join("");
+    el.insightDots.style.display = "";
+  } else {
+    el.insightDots.innerHTML = "";
+    el.insightDots.style.display = "none";
+    return; // No auto-rotate needed for single insight
+  }
+
+  let currentSlide = 0;
+
+  function goToSlide(index) {
+    const slides = el.insightTrack.querySelectorAll(".insight-slide");
+    const dots = el.insightDots.querySelectorAll(".insight-dot");
+    slides.forEach((s, i) => s.classList.toggle("insight-slide--active", i === index));
+    dots.forEach((d, i) => d.classList.toggle("insight-dot--active", i === index));
+    currentSlide = index;
+  }
+
+  // Dot click handler
+  el.insightDots.addEventListener("click", (e) => {
+    const dot = e.target.closest(".insight-dot");
+    if (!dot) return;
+    const index = Number(dot.dataset.index);
+    goToSlide(index);
+    // Reset auto-rotate
+    if (insightInterval) clearInterval(insightInterval);
+    insightInterval = setInterval(() => {
+      goToSlide((currentSlide + 1) % insights.length);
+    }, 5000);
+  });
+
+  // Start auto-rotate
+  insightInterval = setInterval(() => {
+    goToSlide((currentSlide + 1) % insights.length);
+  }, 5000);
 }
 
 // ── Budget Rendering ────────────────────────────────────────────────────────
@@ -889,6 +1231,24 @@ function renderBudgets() {
     .join("");
 
   renderBudgetAlert(budgetData);
+
+  // Update mini progress bar in collapsed toggle
+  const miniBar = document.querySelector("#budgetMiniBar");
+  const miniFill = document.querySelector("#budgetMiniFill");
+  const hint = document.querySelector("#budgetToggleHint");
+  if (miniBar && miniFill && budgetData.length) {
+    const totalBudget = budgetData.reduce((s, b) => s + b.limit, 0);
+    const totalSpent = budgetData.reduce((s, b) => s + b.spent, 0);
+    const overallPct = totalBudget > 0 ? Math.min(Math.round((totalSpent / totalBudget) * 100), 100) : 0;
+    miniBar.classList.add("dash-section__mini-bar--visible");
+    miniFill.style.width = `${overallPct}%`;
+    miniFill.className = "dash-section__mini-fill" +
+      (overallPct >= 90 ? " dash-section__mini-fill--danger" : overallPct >= 70 ? " dash-section__mini-fill--warning" : "");
+    if (hint) hint.textContent = `${formatMoney(totalSpent)} of ${formatMoney(totalBudget)}`;
+  } else if (miniBar) {
+    miniBar.classList.remove("dash-section__mini-bar--visible");
+    if (hint) hint.textContent = "";
+  }
 }
 
 function renderBudgetAlert(budgetData) {
@@ -925,6 +1285,15 @@ function renderRecurring() {
 
   const active = cachedRecurring.filter((r) => !r.paused && !r.deleted);
   const paused = cachedRecurring.filter((r) => r.paused && !r.deleted);
+
+  const recurHint = document.querySelector("#recurringToggleHint");
+  if (recurHint) {
+    if (active.length > 0) {
+      recurHint.textContent = `${active.length} upcoming payment${active.length !== 1 ? "s" : ""}`;
+    } else {
+      recurHint.textContent = "";
+    }
+  }
 
   if (!active.length && !paused.length) {
     list.innerHTML = renderEmptyState(
@@ -2005,6 +2374,28 @@ function setTxType(type) {
       if (el.txCategoryGroup) el.txCategoryGroup.classList.remove("hidden");
     }
   }
+
+  if (el.txIncomeMonthGroup) {
+    if (type === "credit") {
+      el.txIncomeMonthGroup.classList.remove("hidden");
+      const now = new Date();
+      const thisName = now.toLocaleString("default", { month: "short" });
+      const nextDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const nextName = nextDate.toLocaleString("default", { month: "short" });
+      if (el.incomeThisMonthName) el.incomeThisMonthName.textContent = thisName;
+      if (el.incomeNextMonthName) el.incomeNextMonthName.textContent = nextName;
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      if (now.getDate() >= daysInMonth - 4) {
+        if (el.incomeNextMonth) el.incomeNextMonth.classList.add("income-pill--active");
+        if (el.incomeThisMonth) el.incomeThisMonth.classList.remove("income-pill--active");
+      } else {
+        if (el.incomeThisMonth) el.incomeThisMonth.classList.add("income-pill--active");
+        if (el.incomeNextMonth) el.incomeNextMonth.classList.remove("income-pill--active");
+      }
+    } else {
+      el.txIncomeMonthGroup.classList.add("hidden");
+    }
+  }
 }
 
 let defaultAccountId = null;
@@ -2181,6 +2572,8 @@ async function handleTransactionSubmit(event) {
       }
     }
 
+    const forNextMonth = txType === "credit" && el.incomeNextMonth && el.incomeNextMonth.classList.contains("income-pill--active");
+
     transaction = {
       id: crypto.randomUUID(),
       type: txType,
@@ -2197,6 +2590,7 @@ async function handleTransactionSubmit(event) {
       deleted: false,
       syncStatus: "pending",
       lastSyncError: "",
+      ...(forNextMonth ? { forNextMonth: true } : {}),
     };
     lastSelectedAccountId = accountId;
   }
@@ -2275,6 +2669,15 @@ async function handleQuickAdd() {
     syncStatus: "pending",
     lastSyncError: "",
   };
+
+  if (txType === "credit") {
+    const now2 = new Date();
+    const daysInMo = new Date(now2.getFullYear(), now2.getMonth() + 1, 0).getDate();
+    if (now2.getDate() >= daysInMo - 4) {
+      const useNext = await showConfirm("Income for Next Month?", `Count ${formatMoney(parsed.amount)} for next month's budget?`);
+      if (useNext) transaction.forNextMonth = true;
+    }
+  }
 
   await putExpense(transaction);
   logAudit("expense", transaction.id, "create", null, transaction);
@@ -3045,6 +3448,34 @@ function updateChatTypeIndicator() {
   document.querySelectorAll(".chat-chip").forEach((chip) => {
     chip.classList.toggle("active", chip.dataset.chatType === (chatForceType || "debit"));
   });
+
+  const chatMonthGroup = document.querySelector("#chatIncomeMonthGroup");
+  if (chatMonthGroup) {
+    if (chatForceType === "credit") {
+      chatMonthGroup.classList.remove("hidden");
+      const now = new Date();
+      const thisMonthName = now.toLocaleString("default", { month: "short" });
+      const nextDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const nextMonthName = nextDate.toLocaleString("default", { month: "short" });
+      const thisEl = document.querySelector("#chatIncomeThisMonthName");
+      const nextEl = document.querySelector("#chatIncomeNextMonthName");
+      if (thisEl) thisEl.textContent = thisMonthName;
+      if (nextEl) nextEl.textContent = nextMonthName;
+
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const thisBtn = document.querySelector("#chatIncomeThisMonth");
+      const nextBtn = document.querySelector("#chatIncomeNextMonth");
+      if (now.getDate() >= daysInMonth - 4) {
+        thisBtn?.classList.remove("chat-income-pill--active");
+        nextBtn?.classList.add("chat-income-pill--active");
+      } else {
+        thisBtn?.classList.add("chat-income-pill--active");
+        nextBtn?.classList.remove("chat-income-pill--active");
+      }
+    } else {
+      chatMonthGroup.classList.add("hidden");
+    }
+  }
 }
 
 async function handleChatSend() {
@@ -3114,6 +3545,14 @@ async function handleChatSend() {
       );
       if (!ok) return;
     }
+  }
+
+  // forNextMonth from pill toggle
+  const creditTxs = transactions.filter((t) => t.type === "credit");
+  if (creditTxs.length > 0) {
+    const chatNextBtn = document.querySelector("#chatIncomeNextMonth");
+    const useNext = chatNextBtn && chatNextBtn.classList.contains("chat-income-pill--active");
+    if (useNext) creditTxs.forEach((t) => { t.forNextMonth = true; });
   }
 
   // Save all transactions
@@ -4020,6 +4459,31 @@ if (el.txToAccount)
     if (el.txToAccount.value)
       clearFieldError(document.getElementById("txToAccountField"), document.getElementById("txToAccountError"));
   });
+if (el.incomeThisMonth)
+  el.incomeThisMonth.addEventListener("click", () => {
+    el.incomeThisMonth.classList.add("income-pill--active");
+    if (el.incomeNextMonth) el.incomeNextMonth.classList.remove("income-pill--active");
+  });
+if (el.incomeNextMonth)
+  el.incomeNextMonth.addEventListener("click", () => {
+    el.incomeNextMonth.classList.add("income-pill--active");
+    if (el.incomeThisMonth) el.incomeThisMonth.classList.remove("income-pill--active");
+  });
+
+// Chat income month pill handlers
+const chatIncThis = document.querySelector("#chatIncomeThisMonth");
+const chatIncNext = document.querySelector("#chatIncomeNextMonth");
+if (chatIncThis)
+  chatIncThis.addEventListener("click", () => {
+    chatIncThis.classList.add("chat-income-pill--active");
+    if (chatIncNext) chatIncNext.classList.remove("chat-income-pill--active");
+  });
+if (chatIncNext)
+  chatIncNext.addEventListener("click", () => {
+    chatIncNext.classList.add("chat-income-pill--active");
+    if (chatIncThis) chatIncThis.classList.remove("chat-income-pill--active");
+  });
+
 if (el.accountNameInput)
   el.accountNameInput.addEventListener("input", () => {
     if (el.accountNameInput.value.trim())
@@ -4262,6 +4726,11 @@ document.querySelectorAll('[data-action="clear-filters"]').forEach((btn) =>
 document
   .querySelectorAll('[data-action="view-all-history"]')
   .forEach((btn) => btn.addEventListener("click", () => switchTab("history")));
+
+// View category breakdown → Insights tab
+document
+  .querySelectorAll('[data-action="view-insights"]')
+  .forEach((btn) => btn.addEventListener("click", () => switchTab("insights")));
 
 // Export/Import
 if (el.exportCsvBtn) el.exportCsvBtn.addEventListener("click", exportCsv);

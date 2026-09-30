@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#075e54" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#1a1a2e" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#059669" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
     <meta name="description" content="Offline-first personal expense tracker" />
     <meta name="color-scheme" content="light dark" />
     <meta
@@ -595,77 +595,175 @@
           </div>
         </div>
 
-        <!-- Summary Cards (Primary) -->
-        <div class="summary-grid summary-grid--primary">
-          <article class="summary-card summary-card--hero" data-metric="today">
-            <span class="summary-card__label">Today's Spend</span>
-            <strong class="summary-card__value" id="todayTotal">&#8377;0</strong>
+        <!-- Balance Hero Card -->
+        <article class="balance-hero dash-enter dash-enter--1" id="balanceHero">
+          <div class="hero-orb hero-orb--1"></div>
+          <div class="hero-orb hero-orb--2"></div>
+          <div class="hero-orb hero-orb--3"></div>
+          <div class="balance-hero__top">
+            <div class="balance-hero__label-row">
+              <span class="balance-hero__title">Total Balance</span>
+              <span class="balance-status-badge balance-status-badge--healthy" id="healthBadge">
+                <span class="balance-status-badge__dot"></span>
+                <span id="healthBadgeText">Healthy</span>
+              </span>
+            </div>
+            <strong class="balance-hero__amount" id="heroBalance">&#8377;0</strong>
+            <div class="balance-hero__bar-row">
+              <div class="balance-hero__bar-track">
+                <div class="balance-hero__bar-fill" id="heroBarFill"></div>
+              </div>
+              <span class="balance-hero__days" id="daysLeftLabel"></span>
+            </div>
+          </div>
+          <div class="balance-hero__footer">
+            <div class="balance-hero__metric balance-hero__metric--income">
+              <span class="balance-hero__metric-icon">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+              </span>
+              <div class="balance-hero__metric-info">
+                <span class="balance-hero__metric-label">Income</span>
+                <strong class="balance-hero__metric-value" id="heroIncome">&#8377;0</strong>
+              </div>
+            </div>
+            <div class="balance-hero__metric-divider"></div>
+            <div class="balance-hero__metric balance-hero__metric--spent">
+              <span class="balance-hero__metric-icon">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+              </span>
+              <div class="balance-hero__metric-info">
+                <span class="balance-hero__metric-label">Spent</span>
+                <strong class="balance-hero__metric-value" id="heroSpent">&#8377;0</strong>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- Insight Carousel -->
+        <div class="insight-carousel dash-enter dash-enter--2" id="insightCarousel">
+          <div class="insight-carousel__track" id="insightTrack">
+            <!-- slides populated by JS -->
+          </div>
+          <div class="insight-carousel__dots" id="insightDots"></div>
+        </div>
+
+        <!-- Quick Stats (2x2 grid — all key metrics, no duplicates) -->
+        <div class="stats-grid dash-enter dash-enter--3">
+          <article class="stat-tile stat-tile--today">
+            <div class="stat-tile__icon-wrap">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <span class="stat-tile__label">Today</span>
+            <strong class="stat-tile__value" id="todayTotal">&#8377;0</strong>
           </article>
-          <article class="summary-card summary-card--hero" data-metric="month">
-            <span class="summary-card__label">This Month</span>
-            <strong class="summary-card__value" id="monthTotal">&#8377;0</strong>
+          <article class="stat-tile stat-tile--month">
+            <div class="stat-tile__icon-wrap">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            </div>
+            <span class="stat-tile__label">This Month</span>
+            <strong class="stat-tile__value" id="monthTotal">&#8377;0</strong>
+          </article>
+          <article class="stat-tile stat-tile--avg">
+            <div class="stat-tile__icon-wrap">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            </div>
+            <span class="stat-tile__label">Daily Avg</span>
+            <strong class="stat-tile__value" id="dailyAvgCard">&#8377;0</strong>
+          </article>
+          <article class="stat-tile stat-tile--savings">
+            <div class="stat-tile__icon-wrap">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+            </div>
+            <span class="stat-tile__label">Savings</span>
+            <strong class="stat-tile__value" id="savingsRate">0%</strong>
+            <span class="stat-tile__sub" id="savingsSub"></span>
           </article>
         </div>
 
         <!-- Budget Alert (shows only when nearing limit) -->
         <div id="budgetAlertCard" class="budget-alert-card hidden" aria-live="polite"></div>
 
-        <!-- Summary Cards (More Stats - collapsible) -->
-        <details class="more-stats-details">
-          <summary class="more-stats-toggle">More stats</summary>
-          <div class="summary-grid summary-grid--secondary">
-            <article class="summary-card" data-metric="income">
-              <span class="summary-card__label">Income this month</span>
-              <strong class="summary-card__value" id="incomeTotal">&#8377;0</strong>
-            </article>
-            <article class="summary-card" data-metric="available">
-              <span class="summary-card__label">Total available</span>
-              <strong class="summary-card__value" id="totalAvailable">&#8377;0</strong>
-            </article>
-            <article class="summary-card" data-metric="avg-daily">
-              <span class="summary-card__label">Avg daily spend</span>
-              <strong class="summary-card__value" id="avgDailySpend">&#8377;0</strong>
-            </article>
-            <article class="summary-card" data-metric="savings-rate">
-              <span class="summary-card__label">Savings rate</span>
-              <strong class="summary-card__value" id="savingsRate">0%</strong>
-            </article>
+        <!-- View Category Breakdown link -->
+        <div class="dash-link-row dash-enter dash-enter--4">
+          <button type="button" class="dash-link-btn" data-action="view-insights">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            View category breakdown
+            <svg class="dash-link-btn__arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+
+        <!-- Budget Progress Section (collapsible) -->
+        <details class="dash-section dash-enter dash-enter--4" aria-label="Budget overview" id="budgetSection">
+          <summary class="dash-section__toggle">
+            <span class="dash-section__toggle-left">
+              <svg class="dash-section__icon dash-section__icon--budget" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg>
+              <span class="dash-section__toggle-text">
+                Budget vs Spent
+                <span class="dash-section__toggle-hint" id="budgetToggleHint"></span>
+              </span>
+            </span>
+            <span class="dash-section__toggle-right">
+              <span class="dash-section__mini-bar" id="budgetMiniBar">
+                <span class="dash-section__mini-fill" id="budgetMiniFill"></span>
+              </span>
+              <span class="dash-section__chevron">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </span>
+            </span>
+          </summary>
+          <div class="dash-section__body">
+            <div class="dash-section__header-row">
+              <button id="addBudgetBtn" type="button" class="small-btn primary-btn">+ Set Budget</button>
+            </div>
+            <div id="budgetList" class="budget-list">
+              <p class="budget-list__empty">No budgets set. Tap "+ Set Budget" to add one.</p>
+            </div>
           </div>
         </details>
 
-        <!-- Budget Progress Section -->
-        <section class="budget-section" aria-label="Budget overview">
-          <div class="section-heading">
-            <h2>Budget vs Spent</h2>
-            <button id="addBudgetBtn" type="button" class="small-btn primary-btn">+ Set Budget</button>
+        <!-- Recurring Transactions Section (collapsible) -->
+        <details class="dash-section dash-enter dash-enter--4" aria-label="Recurring transactions" id="recurringSection">
+          <summary class="dash-section__toggle">
+            <span class="dash-section__toggle-left">
+              <svg class="dash-section__icon dash-section__icon--recurring" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              <span class="dash-section__toggle-text">
+                Recurring
+                <span class="dash-section__toggle-hint" id="recurringToggleHint"></span>
+              </span>
+            </span>
+            <span class="dash-section__chevron">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </span>
+          </summary>
+          <div class="dash-section__body">
+            <div id="recurringList" class="recurring-list">
+              <p class="empty-state">No recurring transactions set up.</p>
+            </div>
           </div>
-          <div id="budgetList" class="budget-list">
-            <p class="budget-list__empty">No budgets set. Tap "+ Set Budget" to add one.</p>
-          </div>
-        </section>
-
-        <!-- Recurring Transactions Section -->
-        <section class="recurring-section" aria-label="Recurring transactions">
-          <div class="section-heading">
-            <h2>Recurring</h2>
-          </div>
-          <div id="recurringList" class="recurring-list">
-            <p class="empty-state">No recurring transactions set up.</p>
-          </div>
-        </section>
+        </details>
 
         <!-- Recent Transactions Preview -->
-        <section class="recent-transactions-section" aria-label="Recent transactions">
-          <div class="section-heading">
-            <h2>Recent Transactions</h2>
-            <button type="button" class="link-btn" data-action="view-all-history">View all</button>
+        <details class="dash-section dash-enter dash-enter--4" open aria-label="Recent transactions">
+          <summary class="dash-section__toggle">
+            <span class="dash-section__toggle-left">
+              <svg class="dash-section__icon dash-section__icon--recent" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              Recent Transactions
+            </span>
+            <span class="dash-section__chevron">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </span>
+          </summary>
+          <div class="dash-section__body">
+            <div class="dash-section__header-row">
+              <button type="button" class="link-btn" data-action="view-all-history">View all</button>
+            </div>
+            <div id="recentTransactions" class="history-list history-list--compact">
+              <div class="skeleton skeleton-card"></div>
+              <div class="skeleton skeleton-card"></div>
+              <div class="skeleton skeleton-card"></div>
+            </div>
           </div>
-          <div id="recentTransactions" class="history-list history-list--compact">
-            <div class="skeleton skeleton-card"></div>
-            <div class="skeleton skeleton-card"></div>
-            <div class="skeleton skeleton-card"></div>
-          </div>
-        </section>
+        </details>
 
         <!-- Adjustments Summary (hidden by default) -->
         <section id="adjustmentsSummary" class="panel adjustments-summary hidden">
@@ -937,6 +1035,24 @@
                   </svg>
                   Transfer
                 </button>
+              </div>
+
+              <!-- Income Month Attribution (visible only for credit) -->
+              <div id="txIncomeMonthGroup" class="income-month-picker hidden">
+                <div class="income-month-picker__label">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  Count this income for
+                </div>
+                <div class="income-month-picker__pills">
+                  <button type="button" class="income-pill income-pill--active" id="incomeThisMonth">
+                    <span class="income-pill__month" id="incomeThisMonthName">This Month</span>
+                    <span class="income-pill__hint">Current billing</span>
+                  </button>
+                  <button type="button" class="income-pill" id="incomeNextMonth">
+                    <span class="income-pill__month" id="incomeNextMonthName">Next Month</span>
+                    <span class="income-pill__hint">Plan ahead</span>
+                  </button>
+                </div>
               </div>
 
               <!-- Amount — Big & Prominent -->
@@ -2165,6 +2281,18 @@
         <div class="chat-input-bar">
           <div class="chat-type-indicator" id="chatTypeIndicator">
             <span class="chat-type-badge chat-type-badge--debit" id="chatTypeBadge">DEBIT</span>
+          </div>
+          <!-- Chat Income Month Picker (visible only for credit) -->
+          <div id="chatIncomeMonthGroup" class="chat-income-month-picker hidden">
+            <span class="chat-income-month-picker__label">Income for:</span>
+            <div class="chat-income-month-picker__pills">
+              <button type="button" class="chat-income-pill chat-income-pill--active" id="chatIncomeThisMonth">
+                <span id="chatIncomeThisMonthName">This Month</span>
+              </button>
+              <button type="button" class="chat-income-pill" id="chatIncomeNextMonth">
+                <span id="chatIncomeNextMonthName">Next Month</span>
+              </button>
+            </div>
           </div>
           <!-- Live Parse Preview -->
           <div class="chat-parse-preview hidden" id="chatParsePreview"></div>
