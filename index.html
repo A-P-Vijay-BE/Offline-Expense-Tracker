@@ -616,7 +616,17 @@
               <span class="balance-hero__days" id="daysLeftLabel"></span>
             </div>
           </div>
-          <div class="balance-hero__footer">
+          <div class="balance-hero__footer balance-hero__footer--trio">
+            <div class="balance-hero__metric balance-hero__metric--opening">
+              <span class="balance-hero__metric-icon">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+              </span>
+              <div class="balance-hero__metric-info">
+                <span class="balance-hero__metric-label">Opening</span>
+                <strong class="balance-hero__metric-value" id="heroOpening">&#8377;0</strong>
+              </div>
+            </div>
+            <div class="balance-hero__metric-divider"></div>
             <div class="balance-hero__metric balance-hero__metric--income">
               <span class="balance-hero__metric-icon">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
@@ -636,6 +646,7 @@
                 <strong class="balance-hero__metric-value" id="heroSpent">&#8377;0</strong>
               </div>
             </div>
+            <div class="balance-hero__acct-row" id="heroOpeningSub"></div>
           </div>
         </article>
 
@@ -647,8 +658,28 @@
           <div class="insight-carousel__dots" id="insightDots"></div>
         </div>
 
+        <!-- Accounts Summary Card -->
+        <div class="dash-accounts-card dash-enter dash-enter--3" id="dashAccountsCard" data-action="view-accounts" role="button" tabindex="0" aria-label="View accounts">
+          <span class="dash-accounts-card__icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+          </span>
+          <div class="dash-accounts-card__info">
+            <div class="dash-accounts-card__title" id="dashAccountsTitle">Accounts</div>
+            <div class="dash-accounts-card__sub" id="dashAccountsSub">Loading...</div>
+          </div>
+          <span class="dash-accounts-card__chevron">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </span>
+        </div>
+
         <!-- Quick Stats (2x2 grid — all key metrics, no duplicates) -->
         <div class="stats-grid dash-enter dash-enter--3">
+          <div class="stats-grid__header" style="grid-column: 1 / -1">
+            <span class="stats-grid__icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            </span>
+            <span class="stats-grid__title">Quick Stats</span>
+          </div>
           <article class="stat-tile stat-tile--today">
             <div class="stat-tile__icon-wrap">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -686,7 +717,9 @@
         <!-- View Category Breakdown link -->
         <div class="dash-link-row dash-enter dash-enter--4">
           <button type="button" class="dash-link-btn" data-action="view-insights">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            <span class="dash-link-btn__icon-wrap">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+            </span>
             View category breakdown
             <svg class="dash-link-btn__arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
@@ -1041,7 +1074,7 @@
               <div id="txIncomeMonthGroup" class="income-month-picker hidden">
                 <div class="income-month-picker__label">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                  Count this income for
+                  <span id="txMonthPickerLabel">Count for</span>
                 </div>
                 <div class="income-month-picker__pills">
                   <button type="button" class="income-pill income-pill--active" id="incomeThisMonth">
@@ -2400,6 +2433,16 @@
             Date
             <input id="editTxDate" type="date" />
           </label>
+
+          <div id="editTxMonthGroup" class="hidden">
+            <label class="form-field">
+              Count this income for
+              <select id="editTxMonthPicker">
+                <option value="this">This Month</option>
+                <option value="next">Next Month</option>
+              </select>
+            </label>
+          </div>
 
           <p id="editTxMessage" class="message"></p>
         </div>

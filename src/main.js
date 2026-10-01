@@ -184,6 +184,7 @@ const el = {
   healthBadge: document.querySelector("#healthBadge"),
   healthBadgeText: document.querySelector("#healthBadgeText"),
   daysLeftLabel: document.querySelector("#daysLeftLabel"),
+  heroOpening: document.querySelector("#heroOpening"),
   heroIncome: document.querySelector("#heroIncome"),
   heroSpent: document.querySelector("#heroSpent"),
   dailyAvgCard: document.querySelector("#dailyAvgCard"),
@@ -338,6 +339,28 @@ function prevMonthKey() {
   const d = new Date();
   d.setMonth(d.getMonth() - 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function isDebitForMonth(item, monthKey) {
+  if (normalizeType(item.type) !== "debit") return false;
+  if (item.forNextMonth === true) {
+    const d = new Date(monthKey + "-15");
+    d.setMonth(d.getMonth() - 1);
+    const prevKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return String(item.dateKey).startsWith(prevKey);
+  }
+  return String(item.dateKey).startsWith(monthKey);
+}
+
+function isCreditForMonth(item, monthKey) {
+  if (normalizeType(item.type) !== "credit") return false;
+  if (item.forNextMonth === true) {
+    const d = new Date(monthKey + "-15");
+    d.setMonth(d.getMonth() - 1);
+    const prevKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return String(item.dateKey).startsWith(prevKey);
+  }
+  return String(item.dateKey).startsWith(monthKey);
 }
 
 function formatMoney(amount) {
@@ -758,11 +781,11 @@ function renderInsightsKpi() {
   const month = currentMonthKey();
 
   const monthExpense = visible
-    .filter((item) => normalizeType(item.type) === "debit" && String(item.dateKey).startsWith(month))
+    .filter((item) => isDebitForMonth(item, month))
     .reduce((sum, item) => sum + Number(item.amount), 0);
 
   const monthIncome = visible
-    .filter((item) => normalizeType(item.type) === "credit" && String(item.dateKey).startsWith(month))
+    .filter((item) => isCreditForMonth(item, month))
     .reduce((sum, item) => sum + Number(item.amount), 0);
 
   const dayOfMonth = new Date().getDate();
@@ -829,19 +852,32 @@ function renderSummary() {
     .filter((item) => normalizeType(item.type) === "debit" && item.dateKey === today)
     .reduce((sum, item) => sum + Number(item.amount), 0);
 
+  // Budget-attributed (forNextMonth-aware) — used for insights, stats, savings
   const monthExpense = visible
+    .filter((item) => isDebitForMonth(item, month))
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+  const monthIncome = visible
+    .filter((item) => isCreditForMonth(item, month))
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+
+  // Hero card: effective income (forNextMonth salary minus prev month deficit)
+  const heroSpent = visible
     .filter((item) => normalizeType(item.type) === "debit" && String(item.dateKey).startsWith(month))
     .reduce((sum, item) => sum + Number(item.amount), 0);
 
-  const monthIncome = visible
-    .filter((item) => {
-      if (normalizeType(item.type) !== "credit") return false;
-      if (item.forNextMonth === true) {
-        return String(item.dateKey).startsWith(prevMo);
-      }
-      return String(item.dateKey).startsWith(month);
-    })
+  const forNextItems = visible
+    .filter((item) => normalizeType(item.type) === "credit" && item.forNextMonth === true && String(item.dateKey).startsWith(prevMo));
+  const forNextCredits = forNextItems.reduce((sum, item) => sum + Number(item.amount), 0);
+  const forNextDates = new Set(forNextItems.map((item) => item.dateKey));
+  const sameDateDebits = visible
+    .filter((item) => normalizeType(item.type) === "debit" && forNextDates.has(item.dateKey))
     .reduce((sum, item) => sum + Number(item.amount), 0);
+  const effectiveCarryForward = Math.max(0, forNextCredits - sameDateDebits);
+
+  const thisMonthCredits = visible
+    .filter((item) => normalizeType(item.type) === "credit" && String(item.dateKey).startsWith(month) && !item.forNextMonth)
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+  const heroIncome = effectiveCarryForward + thisMonthCredits;
 
   const dayOfMonth = new Date().getDate();
   const avgDaily = dayOfMonth > 0 ? monthExpense / dayOfMonth : 0;
@@ -883,7 +919,7 @@ function renderSummary() {
 
   // Balance Hero Card
   const available = getTotalBalance();
-  const pool = available + monthExpense;
+  const pool = available + heroSpent;
   const pct = pool > 0 ? Math.max(0, Math.min(100, Math.round((available / pool) * 100))) : 100;
 
   if (el.heroBalance) {
@@ -892,17 +928,49 @@ function renderSummary() {
     animateValue(el.heroBalance, prevBal, available);
     el.heroBalance._lastVal = available;
   }
+  const activeAccounts = cachedAccounts.filter((a) => !a.archived);
+  const nonDeleted = cachedExpenses.filter((e) => !e.deleted);
+  const perAccountOpenings = activeAccounts.map((acc) => {
+    const accBalance = calculateAccountBalance(acc, nonDeleted);
+    const thisMonthNet = nonDeleted.reduce((sum, e) => {
+      if (!String(e.dateKey).startsWith(month)) return sum;
+      const t = normalizeType(e.type);
+      if (t === "credit" && (e.accountId === acc.id || e.toAccountId === acc.id)) return sum + Number(e.amount);
+      if (t === "debit" && (e.accountId === acc.id || e.fromAccountId === acc.id)) return sum - Number(e.amount);
+      if (t === "transfer") {
+        if (e.fromAccountId === acc.id) return sum - Number(e.amount);
+        if (e.toAccountId === acc.id) return sum + Number(e.amount);
+      }
+      if (t === "adjustment" && e.accountId === acc.id) return sum + Number(e.balanceEffect || 0);
+      return sum;
+    }, 0);
+    return { acc, opening: accBalance - thisMonthNet };
+  });
+  const openingBalance = perAccountOpenings.reduce((sum, p) => sum + p.opening, 0);
+  if (el.heroOpening) {
+    el.heroOpening._formatter = formatMoney;
+    const prevOpen = Number(el.heroOpening._lastVal) || 0;
+    animateValue(el.heroOpening, prevOpen, openingBalance);
+    el.heroOpening._lastVal = openingBalance;
+    el.heroOpening.style.color = openingBalance < 0 ? "var(--color-danger)" : "";
+  }
+  const openingSub = document.getElementById("heroOpeningSub");
+  if (openingSub) {
+    openingSub.innerHTML = perAccountOpenings
+      .map((p) => `<span class="opening-acct${p.opening < 0 ? " opening-acct--neg" : ""}">${escapeHtml(p.acc.name)} ${formatMoney(p.opening)}</span>`)
+      .join("");
+  }
   if (el.heroIncome) {
     el.heroIncome._formatter = formatMoney;
     const prevInc = Number(el.heroIncome._lastVal) || 0;
-    animateValue(el.heroIncome, prevInc, monthIncome);
-    el.heroIncome._lastVal = monthIncome;
+    animateValue(el.heroIncome, prevInc, heroIncome);
+    el.heroIncome._lastVal = heroIncome;
   }
   if (el.heroSpent) {
     el.heroSpent._formatter = formatMoney;
     const prevSpent = Number(el.heroSpent._lastVal) || 0;
-    animateValue(el.heroSpent, prevSpent, monthExpense);
-    el.heroSpent._lastVal = monthExpense;
+    animateValue(el.heroSpent, prevSpent, heroSpent);
+    el.heroSpent._lastVal = heroSpent;
   }
 
   // Month-day progress bar + days remaining
@@ -934,6 +1002,22 @@ function renderSummary() {
       el.daysLeftLabel.textContent = "Last day of the month";
     } else {
       el.daysLeftLabel.textContent = `Day ${currentDay} of ${totalDays} · ${daysLeft} day${daysLeft > 1 ? "s" : ""} left`;
+    }
+  }
+
+  // Dashboard accounts summary card
+  const dashAccTitle = document.getElementById("dashAccountsTitle");
+  const dashAccSub = document.getElementById("dashAccountsSub");
+  if (dashAccTitle && dashAccSub) {
+    const active = cachedAccounts.filter((a) => !a.archived);
+    const count = active.length;
+    dashAccTitle.textContent = `${count} Account${count !== 1 ? "s" : ""}`;
+    if (count === 0) {
+      dashAccSub.textContent = "Tap to add your first account";
+    } else {
+      const names = active.map((a) => a.name).join(", ");
+      const total = active.reduce((s, a) => s + getAccountBalance(a.id), 0);
+      dashAccSub.textContent = `${names} · ${formatMoney(total)}`;
     }
   }
 }
@@ -969,10 +1053,10 @@ function getMotivation(visible, monthExpense, monthIncome, avgDaily) {
 
   if (dayOfMonth === 1) {
     const lastMonthDebits = visible
-      .filter((e) => normalizeType(e.type) === "debit" && String(e.dateKey).startsWith(prevMo))
+      .filter((e) => isDebitForMonth(e, prevMo))
       .reduce((s, e) => s + Number(e.amount), 0);
     const lastMonthCredits = visible
-      .filter((e) => normalizeType(e.type) === "credit" && String(e.dateKey).startsWith(prevMo))
+      .filter((e) => isCreditForMonth(e, prevMo))
       .reduce((s, e) => s + Number(e.amount), 0);
     const saved = lastMonthCredits - lastMonthDebits;
     if (saved > 0) {
@@ -1008,7 +1092,7 @@ function getMotivation(visible, monthExpense, monthIncome, avgDaily) {
   }
 
   const prevMonthDebits = visible
-    .filter((e) => normalizeType(e.type) === "debit" && String(e.dateKey).startsWith(prevMo))
+    .filter((e) => isDebitForMonth(e, prevMo))
     .reduce((s, e) => s + Number(e.amount), 0);
   if (dayOfMonth >= 20 && prevMonthDebits > 0) {
     const projected = (monthExpense / dayOfMonth) * 30;
@@ -1037,7 +1121,7 @@ function getAllInsights(visible, monthExpense, monthIncome, avgDaily) {
 
   // 2. Month-over-month spending comparison
   const prevMonthDebits = visible
-    .filter((e) => normalizeType(e.type) === "debit" && String(e.dateKey).startsWith(prevMo))
+    .filter((e) => isDebitForMonth(e, prevMo))
     .reduce((s, e) => s + Number(e.amount), 0);
   if (prevMonthDebits > 0 && monthExpense > 0) {
     const pctChange = Math.round(((monthExpense - prevMonthDebits) / prevMonthDebits) * 100);
@@ -1049,7 +1133,7 @@ function getAllInsights(visible, monthExpense, monthIncome, avgDaily) {
   }
 
   // 3. Top spending category this month
-  const monthDebits = visible.filter((e) => normalizeType(e.type) === "debit" && String(e.dateKey).startsWith(month));
+  const monthDebits = visible.filter((e) => isDebitForMonth(e, month));
   if (monthDebits.length > 0) {
     const catTotals = {};
     monthDebits.forEach((e) => {
@@ -1112,15 +1196,10 @@ function renderMotivation() {
   const visible = getVisibleExpenses();
   const month = currentMonthKey();
   const monthExpense = visible
-    .filter((e) => normalizeType(e.type) === "debit" && String(e.dateKey).startsWith(month))
+    .filter((e) => isDebitForMonth(e, month))
     .reduce((s, e) => s + Number(e.amount), 0);
-  const prevMo = prevMonthKey();
   const monthIncome = visible
-    .filter((e) => {
-      if (normalizeType(e.type) !== "credit") return false;
-      if (e.forNextMonth === true) return String(e.dateKey).startsWith(prevMo);
-      return String(e.dateKey).startsWith(month);
-    })
+    .filter((e) => isCreditForMonth(e, month))
     .reduce((s, e) => s + Number(e.amount), 0);
   const dayOfMonth = new Date().getDate();
   const avgDaily = dayOfMonth > 0 ? monthExpense / dayOfMonth : 0;
@@ -1936,9 +2015,7 @@ async function renderSpendingAnalysis() {
   const month = getHeatmapMonthKey();
   const isCurrentMonth = month === currentMonthKey();
 
-  const monthDebits = visible.filter(
-    (item) => normalizeType(item.type) === "debit" && String(item.dateKey).startsWith(month)
-  );
+  const monthDebits = visible.filter((item) => isDebitForMonth(item, month));
   const totalSpent = monthDebits.reduce((sum, item) => sum + Number(item.amount), 0);
   const txnCount = monthDebits.length;
 
@@ -2378,6 +2455,8 @@ function setTxType(type) {
   if (el.txIncomeMonthGroup) {
     if (type === "credit") {
       el.txIncomeMonthGroup.classList.remove("hidden");
+      const monthLabel = document.getElementById("txMonthPickerLabel");
+      if (monthLabel) monthLabel.textContent = "Count this income for";
       const now = new Date();
       const thisName = now.toLocaleString("default", { month: "short" });
       const nextDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -2385,7 +2464,7 @@ function setTxType(type) {
       if (el.incomeThisMonthName) el.incomeThisMonthName.textContent = thisName;
       if (el.incomeNextMonthName) el.incomeNextMonthName.textContent = nextName;
       const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-      if (now.getDate() >= daysInMonth - 4) {
+      if (type === "credit" && now.getDate() >= daysInMonth - 4) {
         if (el.incomeNextMonth) el.incomeNextMonth.classList.add("income-pill--active");
         if (el.incomeThisMonth) el.incomeThisMonth.classList.remove("income-pill--active");
       } else {
@@ -2798,16 +2877,30 @@ function openEditTransactionModal(tx) {
   if (editCategory) editCategory.value = tx.category || "Other";
   if (editDate) editDate.value = tx.dateKey || localDateKey();
 
+  const monthGroup = modal.querySelector("#editTxMonthGroup");
+  const monthPicker = modal.querySelector("#editTxMonthPicker");
+  if (monthGroup && monthPicker) {
+    if (type === "credit") {
+      monthGroup.classList.remove("hidden");
+      monthPicker.value = tx.forNextMonth ? "next" : "this";
+    } else {
+      monthGroup.classList.add("hidden");
+    }
+  }
+
   if (editType) {
     editType.onchange = () => {
-      if (editType.value === "transfer") {
+      const newType = editType.value;
+      if (newType === "transfer") {
         if (singleGroup) singleGroup.classList.add("hidden");
         if (transferGroup) transferGroup.classList.remove("hidden");
         if (categoryGroup) categoryGroup.classList.add("hidden");
+        if (monthGroup) monthGroup.classList.add("hidden");
       } else {
         if (singleGroup) singleGroup.classList.remove("hidden");
         if (transferGroup) transferGroup.classList.add("hidden");
         if (categoryGroup) categoryGroup.classList.remove("hidden");
+        if (monthGroup) monthGroup.classList[newType === "credit" ? "remove" : "add"]("hidden");
       }
     };
   }
@@ -2881,6 +2974,8 @@ async function saveEditedTransaction() {
       showMessage(editMsg, "Please select an account.", true);
       return;
     }
+    const editMonthPicker = modal.querySelector("#editTxMonthPicker");
+    const forNextMonth = type === "credit" && editMonthPicker ? editMonthPicker.value === "next" : false;
     updated = {
       ...existing,
       type,
@@ -2891,6 +2986,7 @@ async function saveEditedTransaction() {
       category,
       description,
       dateKey,
+      forNextMonth,
       occurredAt: `${dateKey}T${new Date().toISOString().slice(11, 23)}Z`,
       updatedAt: now,
       syncStatus: "pending",
@@ -3465,7 +3561,7 @@ function updateChatTypeIndicator() {
       const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
       const thisBtn = document.querySelector("#chatIncomeThisMonth");
       const nextBtn = document.querySelector("#chatIncomeNextMonth");
-      if (now.getDate() >= daysInMonth - 4) {
+      if (chatForceType === "credit" && now.getDate() >= daysInMonth - 4) {
         thisBtn?.classList.remove("chat-income-pill--active");
         nextBtn?.classList.add("chat-income-pill--active");
       } else {
@@ -3547,12 +3643,10 @@ async function handleChatSend() {
     }
   }
 
-  // forNextMonth from pill toggle
-  const creditTxs = transactions.filter((t) => t.type === "credit");
-  if (creditTxs.length > 0) {
-    const chatNextBtn = document.querySelector("#chatIncomeNextMonth");
-    const useNext = chatNextBtn && chatNextBtn.classList.contains("chat-income-pill--active");
-    if (useNext) creditTxs.forEach((t) => { t.forNextMonth = true; });
+  const chatNextBtn = document.querySelector("#chatIncomeNextMonth");
+  const useNext = chatNextBtn && chatNextBtn.classList.contains("chat-income-pill--active");
+  if (useNext) {
+    transactions.filter((t) => t.type === "credit").forEach((t) => { t.forNextMonth = true; });
   }
 
   // Save all transactions
@@ -4731,6 +4825,11 @@ document
 document
   .querySelectorAll('[data-action="view-insights"]')
   .forEach((btn) => btn.addEventListener("click", () => switchTab("insights")));
+
+// View accounts from dashboard summary card
+document
+  .querySelectorAll('[data-action="view-accounts"]')
+  .forEach((btn) => btn.addEventListener("click", () => switchTab("accounts")));
 
 // Export/Import
 if (el.exportCsvBtn) el.exportCsvBtn.addEventListener("click", exportCsv);
