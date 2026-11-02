@@ -1450,25 +1450,31 @@
             <div class="insights-kpi-strip__card">
               <span class="insights-kpi-strip__label">Spent</span>
               <strong class="insights-kpi-strip__value" id="kpiMonthSpent">--</strong>
+              <span class="insights-kpi-strip__sub" id="kpiSpentContext"></span>
+              <div class="kpi-progress">
+                <div class="kpi-progress__fill" id="kpiSpentBar"></div>
+              </div>
             </div>
-            <div class="insights-kpi-strip__card">
-              <span class="insights-kpi-strip__label">Income</span>
+            <div class="insights-kpi-strip__card insights-kpi-strip__card--editable" id="incomeKpiCard" role="button" tabindex="0" aria-label="Add income">
+              <span class="insights-kpi-strip__label">Income <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></span>
               <strong class="insights-kpi-strip__value insights-kpi-strip__value--success" id="kpiMonthIncome"
                 >--</strong
               >
             </div>
             <div class="insights-kpi-strip__card">
-              <span class="insights-kpi-strip__label">Avg/Day</span>
-              <strong class="insights-kpi-strip__value" id="kpiAvgDaily">--</strong>
+              <span class="insights-kpi-strip__label">Left/Day</span>
+              <strong class="insights-kpi-strip__value" id="kpiLeftPerDay">--</strong>
             </div>
             <div class="insights-kpi-strip__card">
-              <span class="insights-kpi-strip__label">vs Last Month</span>
-              <strong class="insights-kpi-strip__value" id="kpiMomChange">--</strong>
+              <span class="insights-kpi-strip__label">Savings</span>
+              <strong class="insights-kpi-strip__value" id="kpiSavings">--</strong>
+              <span class="insights-kpi-strip__sub" id="kpiSavingsRate"></span>
             </div>
           </div>
 
           <!-- Sub-navigation Pill Tabs -->
           <nav class="insights-subtabs" role="tablist" aria-label="Insights sections">
+            <div class="insights-subtab-indicator" aria-hidden="true"></div>
             <button class="insights-subtab" role="tab" aria-selected="false" data-insights-tab="overview">
               <svg
                 width="14"
@@ -1606,6 +1612,58 @@
 
           <!-- Tab: Trends -->
           <div class="insights-tab-content" data-insights-panel="trends">
+            <!-- Quick Insight Summary -->
+            <div id="kpiInsightSummary" class="kpi-summary"></div>
+
+            <!-- Month Pace Summary -->
+            <section class="insights-section" aria-label="Month pace">
+              <div class="section-heading">
+                <h2>📊 Month at a Glance</h2>
+              </div>
+              <div id="monthPaceCard" class="month-pace">
+                <div class="month-pace__row">
+                  <div class="month-pace__metric">
+                    <span class="month-pace__label">This month so far</span>
+                    <strong class="month-pace__value" id="paceThisMonth">--</strong>
+                  </div>
+                  <div class="month-pace__vs">vs</div>
+                  <div class="month-pace__metric">
+                    <span class="month-pace__label" id="paceLastLabel">Same period last month</span>
+                    <strong class="month-pace__value month-pace__value--muted" id="paceLastMonth">--</strong>
+                  </div>
+                </div>
+                <div class="month-pace__bars">
+                  <div class="month-pace__bar-row">
+                    <span class="month-pace__bar-label">This month</span>
+                    <div class="month-pace__bar-track">
+                      <div class="month-pace__bar-fill month-pace__bar-fill--current" id="paceBarCurrent"></div>
+                    </div>
+                  </div>
+                  <div class="month-pace__bar-row">
+                    <span class="month-pace__bar-label">Last month</span>
+                    <div class="month-pace__bar-track">
+                      <div class="month-pace__bar-fill month-pace__bar-fill--prev" id="paceBarPrev"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="month-pace__footer">
+                  <div class="month-pace__stat">
+                    <span class="month-pace__stat-label">If you keep this pace</span>
+                    <strong class="month-pace__stat-value" id="paceProjected">--</strong>
+                  </div>
+                  <div class="month-pace__stat">
+                    <span class="month-pace__stat-label">You can spend/day</span>
+                    <strong class="month-pace__stat-value" id="paceDailyBudget">--</strong>
+                  </div>
+                  <div class="month-pace__stat">
+                    <span class="month-pace__stat-label">Status</span>
+                    <strong class="month-pace__stat-value" id="paceStatus">--</strong>
+                  </div>
+                </div>
+                <div class="month-pace__insight" id="paceInsight"></div>
+              </div>
+            </section>
+
             <section class="insights-section" aria-label="Monthly trend">
               <div class="section-heading">
                 <h2>Monthly Trend</h2>
@@ -1828,6 +1886,38 @@
             <button type="button" class="secondary-btn" data-action="clear-filters">Clear All</button>
             <button type="button" class="primary-btn" data-action="apply-filters">Apply Filters</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Add Income Sheet -->
+    <div id="incomeSheet" class="bottom-sheet hidden" role="dialog" aria-modal="true" aria-label="Add income">
+      <div class="bottom-sheet__backdrop" data-action="close-income-sheet"></div>
+      <div class="bottom-sheet__content income-sheet">
+        <div class="bottom-sheet__handle" aria-hidden="true"></div>
+        <div class="bottom-sheet__header">
+          <h3>💰 Add Income</h3>
+          <button type="button" class="icon-btn" data-action="close-income-sheet" aria-label="Close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="bottom-sheet__body">
+          <div class="income-sheet__amount-row">
+            <span class="income-sheet__currency">₹</span>
+            <input id="incomeSheetAmount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0" class="income-sheet__input" />
+          </div>
+          <div class="form-field">
+            <label for="incomeSheetDesc">Description</label>
+            <input id="incomeSheetDesc" type="text" placeholder="e.g. Salary, Freelance..." class="income-sheet__desc" />
+          </div>
+          <div class="form-field">
+            <label for="incomeSheetAccount">Account</label>
+            <select id="incomeSheetAccount" class="income-sheet__select"></select>
+          </div>
+          <button type="button" class="primary-btn income-sheet__save" id="incomeSheetSave">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            Add Income
+          </button>
         </div>
       </div>
     </div>
@@ -2248,29 +2338,32 @@
           </div>
         </div>
 
-        <!-- Chat Search Bar -->
+        <!-- Chat Search Bar (WhatsApp-style) -->
         <div class="chat-search-bar hidden" id="chatSearchBar">
-          <input
-            id="chatSearchInput"
-            type="text"
-            class="chat-search-input"
-            placeholder="Search transactions..."
-            autocomplete="off"
-          />
-          <button type="button" id="chatSearchCloseBtn" class="chat-search-close" aria-label="Close search">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.5"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
+          <div class="chat-search__row">
+            <button type="button" id="chatSearchCloseBtn" class="chat-search__back" aria-label="Close search">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>
+            </button>
+            <input
+              id="chatSearchInput"
+              type="text"
+              class="chat-search-input"
+              placeholder="Search..."
+              autocomplete="off"
+            />
+          </div>
+          <div class="chat-search__results hidden" id="chatSearchResults">
+            <span class="chat-search__count" id="chatSearchCount"></span>
+            <span class="chat-search__date" id="chatSearchDate"></span>
+            <div class="chat-search__nav">
+              <button type="button" id="chatSearchUp" class="chat-search__nav-btn" aria-label="Previous result">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="18 15 12 9 6 15"/></svg>
+              </button>
+              <button type="button" id="chatSearchDown" class="chat-search__nav-btn" aria-label="Next result">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Chat Messages (Transaction History) -->

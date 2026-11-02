@@ -644,6 +644,11 @@ function switchTab(key) {
       tab.panel.classList.add(`tab-slide--${direction}`);
       requestAnimationFrame(() => {
         tab.panel.classList.remove(`tab-slide--${direction}`);
+        // Reposition insights subtab indicator when panel becomes visible
+        if (tab.key === "insights") {
+          const activeSubtab = document.querySelector(".insights-subtab.active");
+          if (activeSubtab) updateSubtabIndicator(activeSubtab);
+        }
       });
     } else if (!isActive) {
       tab.panel.classList.remove("tab-panel--active", "tab-slide--left", "tab-slide--right");
@@ -731,9 +736,28 @@ function recomputeVisibleExpenses() {
 // ── Insights Sub-tab Navigation ─────────────────────────────────────────────
 let activeInsightsTab = "analysis";
 
+function updateSubtabIndicator(activeBtn) {
+  const indicator = document.querySelector(".insights-subtab-indicator");
+  if (!indicator || !activeBtn) return;
+  const nav = activeBtn.parentElement;
+  const navPad = parseFloat(getComputedStyle(nav).paddingLeft) || 3;
+  indicator.style.width = `${activeBtn.offsetWidth}px`;
+  indicator.style.transform = `translateX(${activeBtn.offsetLeft - navPad}px)`;
+}
+
 function initInsightsSubtabs() {
   const subtabs = document.querySelectorAll(".insights-subtab");
   const panels = document.querySelectorAll(".insights-tab-content");
+
+  // Set initial indicator position
+  const initialActive = document.querySelector(".insights-subtab.active");
+  if (initialActive) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        updateSubtabIndicator(initialActive);
+      });
+    });
+  }
 
   subtabs.forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -749,8 +773,15 @@ function initInsightsSubtabs() {
         p.classList.toggle("active", p.dataset.insightsPanel === key);
       });
 
+      updateSubtabIndicator(btn);
       renderInsightsForTab(key);
     });
+  });
+
+  // Reposition indicator on resize
+  window.addEventListener("resize", () => {
+    const active = document.querySelector(".insights-subtab.active");
+    if (active) updateSubtabIndicator(active);
   });
 }
 
@@ -764,6 +795,7 @@ function renderInsightsForTab(tab) {
       renderDailySummary();
       break;
     case "trends":
+      renderMonthPace();
       renderTrendChart();
       renderDailySpendingChart();
       renderIncomeExpenseChart();
@@ -784,35 +816,194 @@ function renderInsightsKpi() {
     .filter((item) => isDebitForMonth(item, month))
     .reduce((sum, item) => sum + Number(item.amount), 0);
 
-  const monthIncome = visible
-    .filter((item) => isCreditForMonth(item, month))
+  // Effective income — matches Dashboard hero card logic
+  const prevMo = prevMonthKey();
+  const forNextItems = visible
+    .filter((item) => normalizeType(item.type) === "credit" && item.forNextMonth === true && String(item.dateKey).startsWith(prevMo));
+  const forNextCredits = forNextItems.reduce((sum, item) => sum + Number(item.amount), 0);
+  const forNextDates = new Set(forNextItems.map((item) => item.dateKey));
+  const sameDateDebits = visible
+    .filter((item) => normalizeType(item.type) === "debit" && forNextDates.has(item.dateKey))
     .reduce((sum, item) => sum + Number(item.amount), 0);
-
-  const dayOfMonth = new Date().getDate();
-  const avgDaily = dayOfMonth > 0 ? monthExpense / dayOfMonth : 0;
-
-  const prevMonthDate = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
-  const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, "0")}`;
-  const prevExpense = visible
-    .filter((item) => normalizeType(item.type) === "debit" && String(item.dateKey).startsWith(prevMonthKey))
+  const effectiveCarryForward = Math.max(0, forNextCredits - sameDateDebits);
+  const thisMonthCredits = visible
+    .filter((item) => normalizeType(item.type) === "credit" && String(item.dateKey).startsWith(month) && !item.forNextMonth)
     .reduce((sum, item) => sum + Number(item.amount), 0);
+  const monthIncome = effectiveCarryForward + thisMonthCredits;
 
-  const change = prevExpense > 0 ? Math.round(((monthExpense - prevExpense) / prevExpense) * 100) : 0;
-  const changeLabel = change > 0 ? `+${change}%` : `${change}%`;
-  const changeClass =
-    change > 0 ? "insights-kpi-strip__value--danger" : change < 0 ? "insights-kpi-strip__value--success" : "";
+  // Left per day: (income - spent) / remaining days
+  const now = new Date();
+  const dayOfMonth = now.getDate();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const remainingDays = daysInMonth - dayOfMonth;
+  const surplus = monthIncome - monthExpense;
+  const leftPerDay = remainingDays > 0 ? surplus / remainingDays : surplus;
 
+  // Savings
+  const savingsRate = monthIncome > 0 ? Math.round((surplus / monthIncome) * 100) : 0;
+
+  // Spent progress bar ratio
+  const spentRatio = monthIncome > 0 ? Math.min((monthExpense / monthIncome) * 100, 100) : 0;
+  const barClass = spentRatio > 90 ? "kpi-progress__fill--danger" : spentRatio > 70 ? "kpi-progress__fill--warning" : "";
+
+  // ── Update DOM ──
   const kpiSpent = document.querySelector("#kpiMonthSpent");
+  const kpiSpentCtx = document.querySelector("#kpiSpentContext");
   const kpiIncome = document.querySelector("#kpiMonthIncome");
-  const kpiAvg = document.querySelector("#kpiAvgDaily");
-  const kpiMom = document.querySelector("#kpiMomChange");
+  const kpiLeftPerDay = document.querySelector("#kpiLeftPerDay");
+  const kpiSavings = document.querySelector("#kpiSavings");
+  const kpiSavingsRate = document.querySelector("#kpiSavingsRate");
+  const kpiSpentBar = document.querySelector("#kpiSpentBar");
 
   if (kpiSpent) kpiSpent.textContent = formatMoney(monthExpense);
+  if (kpiSpentCtx) kpiSpentCtx.textContent = `Day ${dayOfMonth} of ${daysInMonth}`;
   if (kpiIncome) kpiIncome.textContent = formatMoney(monthIncome);
-  if (kpiAvg) kpiAvg.textContent = formatMoney(avgDaily);
-  if (kpiMom) {
-    kpiMom.textContent = changeLabel;
-    kpiMom.className = `insights-kpi-strip__value ${changeClass}`;
+
+  if (kpiLeftPerDay) {
+    kpiLeftPerDay.textContent = formatMoney(Math.max(0, leftPerDay));
+    kpiLeftPerDay.className = leftPerDay < 0
+      ? "insights-kpi-strip__value insights-kpi-strip__value--danger"
+      : "insights-kpi-strip__value insights-kpi-strip__value--success";
+  }
+
+  if (kpiSavings) {
+    kpiSavings.textContent = formatMoney(Math.abs(surplus));
+    kpiSavings.className = surplus >= 0
+      ? "insights-kpi-strip__value insights-kpi-strip__value--success"
+      : "insights-kpi-strip__value insights-kpi-strip__value--danger";
+  }
+  if (kpiSavingsRate) {
+    kpiSavingsRate.textContent = surplus >= 0
+      ? `${savingsRate}% saved`
+      : `over by ${Math.abs(savingsRate)}%`;
+  }
+
+  if (kpiSpentBar) {
+    kpiSpentBar.style.width = `${spentRatio}%`;
+    kpiSpentBar.className = `kpi-progress__fill ${barClass}`;
+  }
+
+  // ── Short Motivational Summary ──
+  const summaryEl = document.querySelector("#kpiInsightSummary");
+  if (summaryEl) {
+    let line = "";
+
+    if (monthIncome > 0 && surplus > 0) {
+      const icon = savingsRate >= 80 ? "🏆" : savingsRate >= 50 ? "🔥" : "💪";
+      line = `<span class="kpi-summary__line kpi-summary__line--good">${icon} <strong>${savingsRate}% saved</strong> · On track to save <strong>${escapeHtml(formatMoney(surplus))}</strong> this month</span>`;
+    } else if (monthIncome > 0 && surplus <= 0) {
+      line = `<span class="kpi-summary__line kpi-summary__line--warn">⚡ Over by <strong>${escapeHtml(formatMoney(Math.abs(surplus)))}</strong> · ${remainingDays} days left to recover</span>`;
+    } else if (monthExpense === 0) {
+      line = `<span class="kpi-summary__line kpi-summary__line--good">✨ <strong>100% saved</strong> so far — great start!</span>`;
+    }
+
+    summaryEl.innerHTML = line;
+  }
+}
+
+// ── Quick Add Income Sheet ─────────────────────────────────────────────────
+function openIncomeSheet() {
+  const sheet = document.querySelector("#incomeSheet");
+  if (!sheet) return;
+
+  // Populate account dropdown
+  const select = document.querySelector("#incomeSheetAccount");
+  if (select) {
+    const activeAccounts = cachedAccounts.filter((a) => !a.deleted && a.status !== "closed");
+    select.innerHTML = activeAccounts
+      .map((a) => `<option value="${a.id}"${a.id === (lastSelectedAccountId || defaultAccountId) ? " selected" : ""}>${escapeHtml(a.name)}</option>`)
+      .join("");
+  }
+
+  // Reset form
+  const amountInput = document.querySelector("#incomeSheetAmount");
+  const descInput = document.querySelector("#incomeSheetDesc");
+  if (amountInput) amountInput.value = "";
+  if (descInput) descInput.value = "";
+
+  sheet.classList.remove("hidden");
+  requestAnimationFrame(() => sheet.classList.add("open"));
+  if (amountInput) setTimeout(() => amountInput.focus(), 300);
+}
+
+function closeIncomeSheet() {
+  const sheet = document.querySelector("#incomeSheet");
+  if (!sheet) return;
+  sheet.classList.remove("open");
+  setTimeout(() => sheet.classList.add("hidden"), 300);
+}
+
+async function saveQuickIncome() {
+  const amountInput = document.querySelector("#incomeSheetAmount");
+  const descInput = document.querySelector("#incomeSheetDesc");
+  const accountSelect = document.querySelector("#incomeSheetAccount");
+
+  const amount = parseFloat(amountInput?.value);
+  if (!amount || amount <= 0) {
+    showToast("Please enter a valid amount.", "warning");
+    if (amountInput) amountInput.focus();
+    return;
+  }
+
+  const accountId = accountSelect?.value;
+  if (!accountId) {
+    showToast("Please select an account.", "warning");
+    return;
+  }
+
+  const description = descInput?.value.trim() || "Income";
+  const dateKey = localDateKey();
+  const now = new Date().toISOString();
+
+  const transaction = {
+    id: crypto.randomUUID(),
+    type: "credit",
+    amount,
+    accountId,
+    fromAccountId: null,
+    toAccountId: accountId,
+    category: "Salary",
+    description,
+    dateKey,
+    occurredAt: `${dateKey}T${now.slice(11, 23)}Z`,
+    createdAt: now,
+    updatedAt: now,
+    deleted: false,
+    syncStatus: "pending",
+    lastSyncError: "",
+  };
+
+  await putExpense(transaction);
+  logAudit("expense", transaction.id, "create", null, transaction);
+  lastSelectedAccountId = accountId;
+
+  closeIncomeSheet();
+  await refreshUI();
+  haptic("success");
+  showToast("Income added ✓");
+  syncPendingRecords();
+}
+
+function initIncomeSheet() {
+  const card = document.querySelector("#incomeKpiCard");
+  if (card) {
+    card.addEventListener("click", openIncomeSheet);
+    card.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") openIncomeSheet(); });
+  }
+
+  document.querySelectorAll('[data-action="close-income-sheet"]').forEach((btn) => {
+    btn.addEventListener("click", closeIncomeSheet);
+  });
+
+  const saveBtn = document.querySelector("#incomeSheetSave");
+  if (saveBtn) saveBtn.addEventListener("click", saveQuickIncome);
+
+  // Enter key in amount field saves
+  const amountInput = document.querySelector("#incomeSheetAmount");
+  if (amountInput) {
+    amountInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") saveQuickIncome();
+    });
   }
 }
 
@@ -1497,71 +1688,220 @@ async function renderTrendChart() {
 
   const lineChart = renderLineChart(dataPoints, formatMoney);
 
-  const curr = sorted[sorted.length - 1][1];
-  const prev = sorted[sorted.length - 2][1];
-  const change = prev > 0 ? Math.round(((curr - prev) / prev) * 100) : 0;
-  const changeLabel = change > 0 ? `+${change}%` : `${change}%`;
-  const changeClass = change > 0 ? "trend-up" : change < 0 ? "trend-down" : "";
+  // Same-period comparison: first N days of this month vs first N days of last month
+  const now = new Date();
+  const todayDay = now.getDate();
+  const thisMonthKey = currentMonthKey();
+  const lastMonthKey = prevMonthKey();
+  const thisMonthName = now.toLocaleDateString(appSettings.locale, { month: "short" });
+  const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevMonthName = prevMonthDate.toLocaleDateString(appSettings.locale, { month: "short" });
+
+  // Current month: spending in first N days (up to today)
+  const currPeriod = visible
+    .filter((item) => {
+      if (normalizeType(item.type) !== "debit") return false;
+      const dk = String(item.dateKey);
+      if (!dk.startsWith(thisMonthKey)) return false;
+      const day = parseInt(dk.slice(8, 10), 10);
+      return day >= 1 && day <= todayDay;
+    })
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+
+  // Last month: spending in first N days (same period)
+  const prevPeriod = visible
+    .filter((item) => {
+      if (normalizeType(item.type) !== "debit") return false;
+      const dk = String(item.dateKey);
+      if (!dk.startsWith(lastMonthKey)) return false;
+      const day = parseInt(dk.slice(8, 10), 10);
+      return day >= 1 && day <= todayDay;
+    })
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+
+  // Short comparison insight
+  let insightHtml = "";
+  if (prevPeriod > 0) {
+    const diff = Math.abs(currPeriod - prevPeriod);
+    if (currPeriod < prevPeriod) {
+      insightHtml = `<div class="trend-insight trend-insight--good"><span class="trend-insight__icon">🎉</span><span class="trend-insight__text"><strong>${escapeHtml(formatMoney(diff))} saved</strong> vs ${escapeHtml(prevMonthName)}</span></div>`;
+    } else if (currPeriod > prevPeriod) {
+      insightHtml = `<div class="trend-insight trend-insight--warn"><span class="trend-insight__icon">💡</span><span class="trend-insight__text"><strong>${escapeHtml(formatMoney(diff))} more</strong> than ${escapeHtml(prevMonthName)} · You've got this!</span></div>`;
+    } else {
+      insightHtml = `<div class="trend-insight trend-insight--good"><span class="trend-insight__icon">✅</span><span class="trend-insight__text">Same pace as ${escapeHtml(prevMonthName)} · Steady!</span></div>`;
+    }
+  }
+
+  // Side-by-side comparison chips
+  const comparisonHtml = prevPeriod > 0 ? `
+    <div class="trend-compare">
+      <div class="trend-compare__chip">
+        <span class="trend-compare__label">${escapeHtml(thisMonthName)} 1–${todayDay}</span>
+        <strong class="trend-compare__value">${escapeHtml(formatMoney(currPeriod))}</strong>
+      </div>
+      <span class="trend-compare__vs">vs</span>
+      <div class="trend-compare__chip trend-compare__chip--muted">
+        <span class="trend-compare__label">${escapeHtml(prevMonthName)} 1–${todayDay}</span>
+        <strong class="trend-compare__value">${escapeHtml(formatMoney(prevPeriod))}</strong>
+      </div>
+    </div>` : `
+    <div class="trend-compare">
+      <div class="trend-compare__chip">
+        <span class="trend-compare__label">${escapeHtml(thisMonthName)} 1–${todayDay}</span>
+        <strong class="trend-compare__value">${escapeHtml(formatMoney(currPeriod))}</strong>
+      </div>
+    </div>`;
 
   el.trendChart.innerHTML = `
     ${lineChart}
-    <div class="trend-chart__footer">
-      <span>This month: <strong>${escapeHtml(formatMoney(curr))}</strong></span>
-      <span class="trend-chart__change ${changeClass}">${escapeHtml(changeLabel)} vs last month</span>
-    </div>
+    ${comparisonHtml}
+    ${insightHtml}
   `;
 }
 
-// ── Daily Spending Bar Chart (current month in Trends) ─────────────────────
-async function renderDailySpendingChart() {
+// ── Daily Spending Cards (current month in Trends) ──────────────────────────
+function renderDailySpendingChart() {
   const container = document.querySelector("#dailySpendingChart");
   const heading = document.querySelector("#dailySpendingHeading");
   if (!container) return;
 
-  const { renderDailyBarChart } = await import("./chart-engine.js");
   const visible = getVisibleExpenses();
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
+  const monthKey = currentMonthKey();
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const todayDay = now.getDate();
+  const todayKey = localDateKey();
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const monthName = now.toLocaleDateString(appSettings.locale, { month: "short" });
 
+  // Effective income for daily budget
+  const prevMo = prevMonthKey();
+  const forNextItems = visible
+    .filter((item) => normalizeType(item.type) === "credit" && item.forNextMonth === true && String(item.dateKey).startsWith(prevMo));
+  const forNextCredits = forNextItems.reduce((sum, item) => sum + Number(item.amount), 0);
+  const forNextDates = new Set(forNextItems.map((item) => item.dateKey));
+  const sameDateDebits = visible
+    .filter((item) => normalizeType(item.type) === "debit" && forNextDates.has(item.dateKey))
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+  const effectiveCarryForward = Math.max(0, forNextCredits - sameDateDebits);
+  const thisMonthCredits = visible
+    .filter((item) => normalizeType(item.type) === "credit" && String(item.dateKey).startsWith(monthKey) && !item.forNextMonth)
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+  const monthIncome = effectiveCarryForward + thisMonthCredits;
+  const dailyBudget = monthIncome > 0 ? Math.round(monthIncome / daysInMonth) : 0;
+
+  // Build daily totals
   const dailyTotals = new Array(daysInMonth).fill(0);
   for (const item of visible) {
-    const t = normalizeType(item.type);
-    if (t !== "debit") continue;
-    const mk = String(item.dateKey).slice(0, 7);
-    const day = parseInt(String(item.dateKey).slice(8, 10), 10);
+    if (normalizeType(item.type) !== "debit") continue;
+    const dk = String(item.dateKey);
+    if (!dk.startsWith(monthKey)) continue;
+    const day = parseInt(dk.slice(8, 10), 10);
     if (day >= 1 && day <= daysInMonth) dailyTotals[day - 1] += Number(item.amount);
   }
 
-  const total = dailyTotals.reduce((s, v) => s + v, 0);
-  if (total === 0) {
-    container.innerHTML = `<p class="trend-chart__placeholder">No spending recorded this month yet.</p>`;
-    return;
+  // Dynamic heading
+  if (heading) heading.textContent = `Daily Spending — ${monthName} 1–${todayDay}`;
+
+  // Days to show: all up to today (most recent first)
+  const days = [];
+  for (let d = todayDay; d >= 1; d--) {
+    const spent = dailyTotals[d - 1];
+    const date = new Date(year, month - 1, d);
+    const dayName = dayNames[date.getDay()];
+    const dk = `${monthKey}-${String(d).padStart(2, "0")}`;
+    const isToday = dk === todayKey;
+    const pct = dailyBudget > 0 ? Math.min((spent / dailyBudget) * 100, 100) : 0;
+    const overBudget = dailyBudget > 0 && spent > dailyBudget;
+    days.push({ day: d, spent, dayName, dk, isToday, pct, overBudget });
   }
 
-  const dataPoints = dailyTotals.map((val, i) => ({ day: i + 1, value: val }));
-  const avgPerDay = total / todayDay;
-  const peakDay = dataPoints.reduce((a, b) => (b.value > a.value ? b : a), dataPoints[0]);
-  const peakDate = new Date(year, month - 1, peakDay.day);
-  const peakLabel = peakDate.toLocaleDateString(appSettings.locale, { weekday: "short", day: "numeric" });
+  // Show max 7 days, with toggle for rest
+  const showLimit = 7;
+  const hasMore = days.length > showLimit;
+
+  // Stats
+  const totalSpent = dailyTotals.slice(0, todayDay).reduce((s, v) => s + v, 0);
+  const zeroDays = dailyTotals.slice(0, todayDay).filter((v) => v === 0).length;
+  const overDays = dailyTotals.slice(0, todayDay).filter((v) => dailyBudget > 0 && v > dailyBudget).length;
+
+  function renderDayCard(d) {
+    const todayLabel = d.isToday ? '<span class="day-card__today">Today</span>' : "";
+    const amountHtml = d.spent > 0
+      ? `<span class="day-card__amount">${escapeHtml(formatMoney(d.spent))}</span>`
+      : '<span class="day-card__amount day-card__amount--zero">No spend</span>';
+
+    let badge = "";
+    if (d.spent === 0) badge = '<span class="day-card__badge day-card__badge--saved">✨ Saved</span>';
+    else if (d.overBudget) badge = '<span class="day-card__badge day-card__badge--over">Over budget</span>';
+    else badge = '<span class="day-card__badge day-card__badge--ok">On track</span>';
+
+    const barClass = d.overBudget ? "day-card__bar-fill--over" : d.spent === 0 ? "" : "day-card__bar-fill--ok";
+    const budgetLabel = dailyBudget > 0
+      ? `<span class="day-card__budget-text">${escapeHtml(formatMoney(d.spent))} / ${escapeHtml(formatMoney(dailyBudget))}</span>`
+      : "";
+
+    return `
+      <div class="day-card ${d.isToday ? "day-card--today" : ""} ${d.spent === 0 ? "day-card--zero" : ""}">
+        <div class="day-card__header">
+          <div class="day-card__date">
+            <span class="day-card__day-num">${d.dayName}, ${monthName} ${d.day}</span>
+            ${todayLabel}
+          </div>
+          <div class="day-card__right">
+            ${amountHtml}
+            ${badge}
+          </div>
+        </div>
+        <div class="day-card__bar-track">
+          <div class="day-card__bar-fill ${barClass}" style="width: ${d.pct}%"></div>
+        </div>
+        ${budgetLabel}
+      </div>`;
+  }
+
+  const visibleCards = days.slice(0, showLimit).map(renderDayCard).join("");
+  const hiddenCards = hasMore ? days.slice(showLimit).map(renderDayCard).join("") : "";
 
   container.innerHTML = `
-    ${renderDailyBarChart(dataPoints, formatMoney, todayDay, year, month)}
+    <div class="day-cards">
+      ${visibleCards}
+      ${hasMore ? `<div class="day-cards__more hidden" id="dayCardsMore">${hiddenCards}</div>
+        <button type="button" class="day-cards__toggle" id="dayCardsToggle">
+          Show earlier days
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>` : ""}
+    </div>
     <div class="daily-spending__stats">
       <div class="daily-spending__stat">
-        <span class="daily-spending__stat-label">Total</span>
-        <strong class="daily-spending__stat-value">${escapeHtml(formatMoney(total))}</strong>
+        <span class="daily-spending__stat-label">Budget/day</span>
+        <strong class="daily-spending__stat-value">${escapeHtml(formatMoney(dailyBudget))}</strong>
       </div>
       <div class="daily-spending__stat">
-        <span class="daily-spending__stat-label">Avg/day</span>
-        <strong class="daily-spending__stat-value">${escapeHtml(formatMoney(avgPerDay))}</strong>
+        <span class="daily-spending__stat-label">Over budget</span>
+        <strong class="daily-spending__stat-value ${overDays > 0 ? "daily-spending__stat-value--peak" : ""}">${overDays} day${overDays !== 1 ? "s" : ""}</strong>
       </div>
       <div class="daily-spending__stat">
-        <span class="daily-spending__stat-label">Peak (${escapeHtml(peakLabel)})</span>
-        <strong class="daily-spending__stat-value daily-spending__stat-value--peak">${escapeHtml(formatMoney(peakDay.value))}</strong>
+        <span class="daily-spending__stat-label">No-spend days</span>
+        <strong class="daily-spending__stat-value ${zeroDays > 0 ? "daily-spending__stat-value--success" : ""}">${zeroDays} 🌟</strong>
       </div>
     </div>
   `;
+
+  // Toggle handler for "show earlier days"
+  const toggleBtn = container.querySelector("#dayCardsToggle");
+  const moreEl = container.querySelector("#dayCardsMore");
+  if (toggleBtn && moreEl) {
+    toggleBtn.addEventListener("click", () => {
+      const expanded = !moreEl.classList.contains("hidden");
+      moreEl.classList.toggle("hidden", expanded);
+      toggleBtn.innerHTML = expanded
+        ? 'Show earlier days <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>'
+        : 'Show less <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="18 15 12 9 6 15"/></svg>';
+    });
+  }
 }
 
 // ── Daily Summary (Day-wise Debit/Credit Totals) ────────────────────────────
@@ -2004,6 +2344,153 @@ async function renderIncomeExpenseChart() {
   }
 
   container.innerHTML = ieChart;
+}
+
+// ── Month Pace Card (Trends tab) ───────────────────────────────────────────
+function renderMonthPace() {
+  const container = document.querySelector("#monthPaceCard");
+  if (!container) return;
+
+  const visible = getVisibleExpenses();
+  const month = currentMonthKey();
+  const prevMo = prevMonthKey();
+  const now = new Date();
+  const dayOfMonth = now.getDate();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+
+  // This month's spending so far
+  const thisMonthSpent = visible
+    .filter((item) => isDebitForMonth(item, month))
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+
+  // Last month same-period spending (first N days)
+  const lastMonthSamePeriod = visible
+    .filter((item) => {
+      if (normalizeType(item.type) !== "debit") return false;
+      const dk = String(item.dateKey);
+      if (!dk.startsWith(prevMo)) return false;
+      const day = parseInt(dk.slice(8, 10), 10);
+      return day >= 1 && day <= dayOfMonth;
+    })
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+
+  // Last month total
+  const lastMonthTotal = visible
+    .filter((item) => normalizeType(item.type) === "debit" && String(item.dateKey).startsWith(prevMo))
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+
+  // Effective income (same logic as KPI strip)
+  const forNextItems = visible
+    .filter((item) => normalizeType(item.type) === "credit" && item.forNextMonth === true && String(item.dateKey).startsWith(prevMo));
+  const forNextCredits = forNextItems.reduce((sum, item) => sum + Number(item.amount), 0);
+  const forNextDates = new Set(forNextItems.map((item) => item.dateKey));
+  const sameDateDebits = visible
+    .filter((item) => normalizeType(item.type) === "debit" && forNextDates.has(item.dateKey))
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+  const effectiveCarryForward = Math.max(0, forNextCredits - sameDateDebits);
+  const thisMonthCredits = visible
+    .filter((item) => normalizeType(item.type) === "credit" && String(item.dateKey).startsWith(month) && !item.forNextMonth)
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+  const monthIncome = effectiveCarryForward + thisMonthCredits;
+
+  // Projections
+  const projected = dayOfMonth > 0 ? Math.round((thisMonthSpent / dayOfMonth) * daysInMonth) : 0;
+  const remainingDays = daysInMonth - dayOfMonth;
+  const surplus = monthIncome - thisMonthSpent;
+  const dailyBudgetLeft = remainingDays > 0 ? surplus / remainingDays : surplus;
+
+  // Status
+  let statusText, statusClass;
+  const paceRatio = lastMonthSamePeriod > 0
+    ? ((thisMonthSpent - lastMonthSamePeriod) / lastMonthSamePeriod) * 100
+    : 0;
+
+  const savingsRatePace = monthIncome > 0 ? Math.round((surplus / monthIncome) * 100) : 0;
+
+  if (monthIncome > 0 && projected > monthIncome) {
+    statusText = "⚡ Act now";
+    statusClass = "month-pace__stat-value--warning";
+  } else if (savingsRatePace >= 80) {
+    statusText = "🏆 Champion";
+    statusClass = "month-pace__stat-value--success";
+  } else if (savingsRatePace >= 50) {
+    statusText = "🔥 Strong";
+    statusClass = "month-pace__stat-value--success";
+  } else if (paceRatio < -10) {
+    statusText = "💪 Improving";
+    statusClass = "month-pace__stat-value--success";
+  } else {
+    statusText = "✅ On track";
+    statusClass = "";
+  }
+
+  // Bar widths (relative to max of this vs last)
+  const maxSpend = Math.max(thisMonthSpent, lastMonthSamePeriod, 1);
+  const thisBarPct = Math.round((thisMonthSpent / maxSpend) * 100);
+  const prevBarPct = Math.round((lastMonthSamePeriod / maxSpend) * 100);
+
+  // Update DOM
+  const prevMonthName = new Date(prevMo + "-01").toLocaleDateString(appSettings.locale, { month: "short" });
+
+  const elThis = document.querySelector("#paceThisMonth");
+  const elLast = document.querySelector("#paceLastMonth");
+  const elLastLabel = document.querySelector("#paceLastLabel");
+  const elBarCurr = document.querySelector("#paceBarCurrent");
+  const elBarPrev = document.querySelector("#paceBarPrev");
+  const elProjected = document.querySelector("#paceProjected");
+  const elDailyBudget = document.querySelector("#paceDailyBudget");
+  const elStatus = document.querySelector("#paceStatus");
+
+  if (elThis) elThis.textContent = formatMoney(thisMonthSpent);
+  if (elLast) elLast.textContent = formatMoney(lastMonthSamePeriod);
+  if (elLastLabel) elLastLabel.textContent = `${prevMonthName} 1–${dayOfMonth}`;
+
+  // Animate bars after a tick
+  requestAnimationFrame(() => {
+    if (elBarCurr) elBarCurr.style.width = `${thisBarPct}%`;
+    if (elBarPrev) elBarPrev.style.width = `${prevBarPct}%`;
+  });
+
+  if (elProjected) {
+    elProjected.textContent = formatMoney(projected);
+    const projClass = monthIncome > 0 && projected > monthIncome ? "month-pace__stat-value--danger" : "";
+    elProjected.className = `month-pace__stat-value ${projClass}`;
+  }
+
+  if (elDailyBudget) {
+    elDailyBudget.textContent = formatMoney(Math.max(0, dailyBudgetLeft));
+    const budgetClass = dailyBudgetLeft < 0
+      ? "month-pace__stat-value--danger"
+      : dailyBudgetLeft < 500
+        ? "month-pace__stat-value--warning"
+        : "month-pace__stat-value--success";
+    elDailyBudget.className = `month-pace__stat-value ${budgetClass}`;
+  }
+
+  if (elStatus) {
+    elStatus.textContent = statusText;
+    elStatus.className = `month-pace__stat-value ${statusClass}`;
+  }
+
+  // Short motivational insight — one line only
+  const elInsight = document.querySelector("#paceInsight");
+  if (elInsight) {
+    let insightLine = "";
+
+    if (monthIncome > 0 && surplus > 0) {
+      const projectedSavings = monthIncome - projected;
+      if (lastMonthSamePeriod > 0 && thisMonthSpent < lastMonthSamePeriod) {
+        const savedVsLast = lastMonthSamePeriod - thisMonthSpent;
+        insightLine = `<span class="month-pace__insight-text month-pace__insight-text--good">🎉 <strong>${escapeHtml(formatMoney(savedVsLast))} less</strong> than ${escapeHtml(prevMonthName)} · Projected savings: <strong>${escapeHtml(formatMoney(projectedSavings > 0 ? projectedSavings : surplus))}</strong></span>`;
+      } else if (projectedSavings > 0) {
+        insightLine = `<span class="month-pace__insight-text month-pace__insight-text--good">💰 Projected savings: <strong>${escapeHtml(formatMoney(projectedSavings))}</strong> by month-end</span>`;
+      }
+    } else if (monthIncome > 0 && projected > monthIncome) {
+      insightLine = `<span class="month-pace__insight-text month-pace__insight-text--warn">💡 Keep daily spend under <strong>${escapeHtml(formatMoney(Math.round(Math.max(0, dailyBudgetLeft))))}</strong> to stay on track</span>`;
+    }
+
+    elInsight.innerHTML = insightLine;
+  }
 }
 
 // ── Spending Analysis (Summary Stats) ───────────────────────────────────────
@@ -3606,14 +4093,18 @@ async function handleChatSend() {
     }
 
     const now = new Date().toISOString();
+    // Use overrides for single entries
+    const finalCategory = (lines.length === 1 && chatCategoryOverride) ? chatCategoryOverride : parsed.category;
+    const finalAmount = (lines.length === 1 && chatAmountOverride != null) ? chatAmountOverride : parsed.amount;
+
     transactions.push({
       id: crypto.randomUUID(),
       type: txType,
-      amount: parsed.amount,
+      amount: finalAmount,
       accountId,
       fromAccountId: txType === "debit" ? accountId : null,
       toAccountId: txType === "credit" ? accountId : null,
-      category: parsed.category,
+      category: finalCategory,
       description: parsed.description,
       dateKey: parsed.dateKey,
       occurredAt: parsed.occurredAt,
@@ -3736,12 +4227,20 @@ function showUndoToast(message, transactions) {
   }, 4000);
 }
 
+let chatCategoryOverride = null;
+let chatAmountOverride = null;
+
 function hideChatPreview() {
   const preview = document.querySelector("#chatParsePreview");
   if (preview) {
     preview.classList.add("hidden");
     preview.innerHTML = "";
   }
+  chatCategoryOverride = null;
+  chatAmountOverride = null;
+  // Remove any open pickers
+  document.querySelector(".chat-category-picker")?.remove();
+  document.querySelector(".chat-amount-editor")?.remove();
 }
 
 function updateChatParsePreview(value) {
@@ -3752,6 +4251,7 @@ function updateChatParsePreview(value) {
   if (!rawValue) {
     preview.classList.add("hidden");
     preview.innerHTML = "";
+    chatCategoryOverride = null;
     return;
   }
 
@@ -3773,11 +4273,37 @@ function updateChatParsePreview(value) {
     const r = results[0];
     const txType = chatForceType || (r.type === "income" ? "credit" : "debit");
     const amountClass = txType === "credit" ? "chat-parse-preview__amount--credit" : "";
+    const displayCategory = chatCategoryOverride || r.category;
+    const displayAmount = chatAmountOverride != null ? chatAmountOverride : r.amount;
     preview.innerHTML = `
-      <span class="chat-parse-preview__item chat-parse-preview__amount ${amountClass}">${txType === "credit" ? "+" : "-"}${escapeHtml(formatMoney(r.amount))}</span>
-      <span class="chat-parse-preview__item chat-parse-preview__category">${escapeHtml(r.category)}</span>
+      <button type="button" class="chat-parse-preview__item chat-parse-preview__amount chat-parse-preview__amount--editable ${amountClass}" id="chatAmountChip" title="Tap to edit amount">
+        ${txType === "credit" ? "+" : "-"}${escapeHtml(formatMoney(displayAmount))}
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      </button>
+      <button type="button" class="chat-parse-preview__item chat-parse-preview__category chat-parse-preview__category--editable" id="chatCategoryChip" title="Tap to change category">
+        ${escapeHtml(displayCategory)}
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      </button>
       <span class="chat-parse-preview__item">${txType.toUpperCase()}</span>
     `;
+
+    // Attach amount editor
+    const amountChip = preview.querySelector("#chatAmountChip");
+    if (amountChip) {
+      amountChip.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleAmountEditor(displayAmount);
+      });
+    }
+
+    // Attach category picker
+    const chip = preview.querySelector("#chatCategoryChip");
+    if (chip) {
+      chip.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleCategoryPicker(chip, displayCategory);
+      });
+    }
   } else {
     const total = results.reduce((s, r) => s + r.amount, 0);
     preview.innerHTML = `
@@ -3785,6 +4311,97 @@ function updateChatParsePreview(value) {
       <span class="chat-parse-preview__item chat-parse-preview__amount">Total: ${escapeHtml(formatMoney(total))}</span>
     `;
   }
+}
+
+function toggleCategoryPicker(anchor, currentCategory) {
+  // Remove existing picker
+  const existing = document.querySelector(".chat-category-picker");
+  if (existing) { existing.remove(); return; }
+
+  const picker = document.createElement("div");
+  picker.className = "chat-category-picker";
+
+  const pills = CATEGORIES.map((cat) => {
+    const active = cat === currentCategory ? "chat-category-picker__pill--active" : "";
+    return `<button type="button" class="chat-category-picker__pill ${active}" data-cat="${escapeHtml(cat)}">${escapeHtml(cat)}</button>`;
+  }).join("");
+
+  picker.innerHTML = pills;
+
+  // Position below the preview bar
+  const preview = document.querySelector("#chatParsePreview");
+  if (preview) preview.parentElement.insertBefore(picker, preview.nextSibling);
+
+  // Handle selection
+  picker.addEventListener("click", (e) => {
+    const pill = e.target.closest("[data-cat]");
+    if (!pill) return;
+    chatCategoryOverride = pill.dataset.cat;
+    picker.remove();
+    // Re-render preview with new category
+    const chatInput = document.querySelector("#chatInput");
+    if (chatInput) updateChatParsePreview(chatInput.value);
+  });
+
+  // Close on outside click
+  const closeHandler = (e) => {
+    if (!picker.contains(e.target) && e.target !== anchor) {
+      picker.remove();
+      document.removeEventListener("click", closeHandler);
+    }
+  };
+  setTimeout(() => document.addEventListener("click", closeHandler), 0);
+}
+
+function toggleAmountEditor(currentAmount) {
+  // Remove existing editors/pickers
+  document.querySelector(".chat-amount-editor")?.remove();
+  document.querySelector(".chat-category-picker")?.remove();
+
+  const editor = document.createElement("div");
+  editor.className = "chat-amount-editor";
+  editor.innerHTML = `
+    <input type="number" class="chat-amount-editor__input" id="chatAmountEditInput" value="${currentAmount}" min="0" step="any" inputmode="decimal" />
+    <button type="button" class="chat-amount-editor__done" id="chatAmountEditDone">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+    </button>
+  `;
+
+  const preview = document.querySelector("#chatParsePreview");
+  if (preview) preview.parentElement.insertBefore(editor, preview.nextSibling);
+
+  const input = editor.querySelector("#chatAmountEditInput");
+  const doneBtn = editor.querySelector("#chatAmountEditDone");
+
+  if (input) {
+    input.focus();
+    input.select();
+  }
+
+  function applyAmount() {
+    const val = parseFloat(input?.value);
+    if (val > 0) {
+      chatAmountOverride = val;
+    }
+    editor.remove();
+    const chatInput = document.querySelector("#chatInput");
+    if (chatInput) updateChatParsePreview(chatInput.value);
+  }
+
+  if (doneBtn) doneBtn.addEventListener("click", applyAmount);
+  if (input) input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); applyAmount(); }
+    if (e.key === "Escape") { editor.remove(); }
+  });
+
+  // Close on outside click
+  const closeHandler = (e) => {
+    if (!editor.contains(e.target)) {
+      editor.remove();
+      document.removeEventListener("click", closeHandler);
+    }
+  };
+  setTimeout(() => document.addEventListener("click", closeHandler), 0);
 }
 
 // ── Budget Modal ────────────────────────────────────────────────────────────
@@ -5021,75 +5638,198 @@ if (accountActivityList) {
   });
 }
 
-// Chat Search
+// ── Chat Search (WhatsApp-style with navigation) ──────────────────────────
 const chatSearchToggleBtn = document.querySelector("#chatSearchToggleBtn");
 const chatSearchBar = document.querySelector("#chatSearchBar");
 const chatSearchInput = document.querySelector("#chatSearchInput");
 const chatSearchCloseBtn = document.querySelector("#chatSearchCloseBtn");
+const chatSearchResults = document.querySelector("#chatSearchResults");
+const chatSearchCount = document.querySelector("#chatSearchCount");
+const chatSearchDate = document.querySelector("#chatSearchDate");
+const chatSearchUp = document.querySelector("#chatSearchUp");
+const chatSearchDown = document.querySelector("#chatSearchDown");
 
-if (chatSearchToggleBtn) {
-  chatSearchToggleBtn.addEventListener("click", () => {
-    if (chatSearchBar) {
-      chatSearchBar.classList.toggle("hidden");
-      if (!chatSearchBar.classList.contains("hidden")) {
-        chatSearchInput.value = "";
-        chatSearchInput.focus();
-        filterChatBubbles("");
-      } else {
-        filterChatBubbles("");
-      }
-    }
-  });
+let searchMatches = [];
+let searchActiveIdx = -1;
+
+function openChatSearch() {
+  if (!chatSearchBar) return;
+  chatSearchBar.classList.remove("hidden");
+  if (chatSearchInput) { chatSearchInput.value = ""; chatSearchInput.focus(); }
+  clearChatSearch();
 }
 
-if (chatSearchCloseBtn) {
-  chatSearchCloseBtn.addEventListener("click", () => {
-    if (chatSearchBar) chatSearchBar.classList.add("hidden");
-    if (chatSearchInput) chatSearchInput.value = "";
-    filterChatBubbles("");
-  });
+function closeChatSearch() {
+  if (chatSearchBar) chatSearchBar.classList.add("hidden");
+  if (chatSearchInput) chatSearchInput.value = "";
+  clearChatSearch();
 }
 
-if (chatSearchInput) {
-  chatSearchInput.addEventListener(
-    "input",
-    debounce(() => {
-      filterChatBubbles(chatSearchInput.value.trim().toLowerCase());
-    }, 250)
-  );
+function clearChatSearch() {
+  const list = document.querySelector("#accountActivityList");
+  if (!list) return;
+  list.querySelectorAll(".chat-bubble").forEach((b) => {
+    b.classList.remove("chat-bubble--hidden", "chat-bubble--highlight", "chat-bubble--active-match");
+    // Remove highlight marks
+    b.querySelectorAll("mark.chat-search-mark").forEach((m) => m.replaceWith(m.textContent));
+  });
+  list.querySelectorAll(".chat-date-divider").forEach((d) => d.classList.remove("hidden"));
+  list.querySelectorAll(".chat-day-total").forEach((d) => d.classList.remove("hidden"));
+  searchMatches = [];
+  searchActiveIdx = -1;
+  if (chatSearchResults) chatSearchResults.classList.add("hidden");
+}
+
+function highlightTextInNode(el, query) {
+  // Walk text nodes and wrap matches in <mark>
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+
+  for (const node of nodes) {
+    const idx = node.textContent.toLowerCase().indexOf(query);
+    if (idx === -1) continue;
+    const before = node.textContent.slice(0, idx);
+    const match = node.textContent.slice(idx, idx + query.length);
+    const after = node.textContent.slice(idx + query.length);
+    const mark = document.createElement("mark");
+    mark.className = "chat-search-mark";
+    mark.textContent = match;
+    const frag = document.createDocumentFragment();
+    if (before) frag.appendChild(document.createTextNode(before));
+    frag.appendChild(mark);
+    if (after) frag.appendChild(document.createTextNode(after));
+    node.parentNode.replaceChild(frag, node);
+  }
+}
+
+function getDateForBubble(bubble) {
+  // Walk backwards from bubble to find nearest date divider
+  let el = bubble.previousElementSibling;
+  while (el) {
+    if (el.classList.contains("chat-date-divider")) return el.textContent.trim();
+    el = el.previousElementSibling;
+  }
+  return "";
 }
 
 function filterChatBubbles(query) {
   const list = document.querySelector("#accountActivityList");
   if (!list) return;
-  const bubbles = list.querySelectorAll(".chat-bubble[data-searchtext]");
-  const dividers = list.querySelectorAll(".chat-date-divider");
+
+  // Reset previous highlights
+  list.querySelectorAll("mark.chat-search-mark").forEach((m) => m.replaceWith(m.textContent));
+  list.querySelectorAll(".chat-bubble").forEach((b) => {
+    b.classList.remove("chat-bubble--hidden", "chat-bubble--highlight", "chat-bubble--active-match");
+  });
+  list.querySelectorAll(".chat-date-divider, .chat-day-total").forEach((d) => d.classList.remove("hidden"));
+
+  searchMatches = [];
+  searchActiveIdx = -1;
 
   if (!query) {
-    bubbles.forEach((b) => {
-      b.classList.remove("chat-bubble--hidden", "chat-bubble--highlight");
-    });
-    dividers.forEach((d) => {
-      d.classList.remove("hidden");
-    });
+    if (chatSearchResults) chatSearchResults.classList.add("hidden");
     return;
   }
+
+  const bubbles = list.querySelectorAll(".chat-bubble[data-searchtext]");
 
   bubbles.forEach((b) => {
     const text = b.dataset.searchtext || "";
     if (text.includes(query)) {
       b.classList.remove("chat-bubble--hidden");
       b.classList.add("chat-bubble--highlight");
+      highlightTextInNode(b.querySelector(".chat-bubble__desc") || b, query);
+      highlightTextInNode(b.querySelector(".chat-bubble__amount") || b, query);
+      searchMatches.push(b);
     } else {
       b.classList.add("chat-bubble--hidden");
-      b.classList.remove("chat-bubble--highlight");
     }
   });
 
-  dividers.forEach((d) => {
-    d.classList.add("hidden");
+  // Hide dividers & day totals that have no visible bubbles nearby
+  list.querySelectorAll(".chat-date-divider").forEach((d) => {
+    let next = d.nextElementSibling;
+    let hasVisible = false;
+    while (next && !next.classList.contains("chat-date-divider")) {
+      if (next.classList.contains("chat-bubble") && !next.classList.contains("chat-bubble--hidden")) {
+        hasVisible = true; break;
+      }
+      next = next.nextElementSibling;
+    }
+    if (!hasVisible) d.classList.add("hidden");
+  });
+  list.querySelectorAll(".chat-day-total").forEach((d) => {
+    let prev = d.previousElementSibling;
+    let hasVisible = false;
+    while (prev && !prev.classList.contains("chat-date-divider")) {
+      if (prev.classList.contains("chat-bubble") && !prev.classList.contains("chat-bubble--hidden")) {
+        hasVisible = true; break;
+      }
+      prev = prev.previousElementSibling;
+    }
+    if (!hasVisible) d.classList.add("hidden");
+  });
+
+  // Update results UI
+  if (chatSearchResults && chatSearchCount) {
+    if (searchMatches.length > 0) {
+      chatSearchResults.classList.remove("hidden");
+      searchActiveIdx = 0;
+      navigateToMatch(0);
+    } else {
+      chatSearchResults.classList.remove("hidden");
+      chatSearchCount.textContent = "No results";
+      if (chatSearchDate) chatSearchDate.textContent = "";
+    }
+  }
+}
+
+function navigateToMatch(idx) {
+  if (!searchMatches.length) return;
+  // Clamp
+  if (idx < 0) idx = searchMatches.length - 1;
+  if (idx >= searchMatches.length) idx = 0;
+  searchActiveIdx = idx;
+
+  // Remove previous active
+  searchMatches.forEach((b) => b.classList.remove("chat-bubble--active-match"));
+
+  // Set active
+  const active = searchMatches[idx];
+  active.classList.add("chat-bubble--active-match");
+  active.scrollIntoView({ behavior: "smooth", block: "center" });
+
+  // Update counter
+  if (chatSearchCount) chatSearchCount.textContent = `${idx + 1} of ${searchMatches.length}`;
+  if (chatSearchDate) chatSearchDate.textContent = getDateForBubble(active);
+}
+
+if (chatSearchToggleBtn) {
+  chatSearchToggleBtn.addEventListener("click", () => {
+    if (chatSearchBar && !chatSearchBar.classList.contains("hidden")) closeChatSearch();
+    else openChatSearch();
   });
 }
+
+if (chatSearchCloseBtn) chatSearchCloseBtn.addEventListener("click", closeChatSearch);
+
+if (chatSearchInput) {
+  chatSearchInput.addEventListener("input", debounce(() => {
+    filterChatBubbles(chatSearchInput.value.trim().toLowerCase());
+  }, 200));
+  // Enter = next, Shift+Enter = prev
+  chatSearchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && searchMatches.length) {
+      e.preventDefault();
+      navigateToMatch(e.shiftKey ? searchActiveIdx - 1 : searchActiveIdx + 1);
+    }
+    if (e.key === "Escape") closeChatSearch();
+  });
+}
+
+if (chatSearchUp) chatSearchUp.addEventListener("click", () => navigateToMatch(searchActiveIdx - 1));
+if (chatSearchDown) chatSearchDown.addEventListener("click", () => navigateToMatch(searchActiveIdx + 1));
 
 // Edit transaction modal
 const editTxSaveBtn = document.querySelector("#saveEditTxBtn");
@@ -5221,6 +5961,7 @@ async function initialize() {
   initSwipeNavigation(tabs, switchTab);
   initChartTooltips();
   initInsightsSubtabs();
+  initIncomeSheet();
   await initDarkMode();
   await loadDefaultAccount();
   await loadUserName();
