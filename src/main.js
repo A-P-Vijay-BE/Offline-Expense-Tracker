@@ -37,9 +37,23 @@ import {
   getAllRecurring,
   deleteRecurring,
   getActiveRecurring,
+  putWaterRotation,
+  getWaterRotation,
+  getAllWaterRotations,
+  deleteWaterRotation,
+  getActiveWaterRotations,
   getSetting,
   putSetting,
 } from "./local-db.js";
+import {
+  requestNotificationPermission,
+  getNotificationPermission,
+  startReminderLoop,
+  calculateNextDate,
+  isReminderDueToday,
+  formatRelativeDate,
+  resetShownNotifications,
+} from "./reminder-engine.js";
 import {
   calculateAccountBalance,
   calculateAllAccountBalances,
@@ -311,6 +325,10 @@ let cachedExpenses = [];
 let cachedAccounts = [];
 let cachedBudgets = [];
 let cachedRecurring = [];
+let cachedWaterRotations = [];
+let editingWaterRotationId = null;
+let postponingWaterRotationId = null;
+let stopReminderLoop = null;
 let editingAccountId = null;
 let editingAdjustmentId = null;
 let adjustmentTargetAccountId = null;
@@ -537,7 +555,7 @@ function toggleDarkMode() {
   const current = document.documentElement.getAttribute("data-theme");
   const next = current === "dark" ? "light" : "dark";
   applyTheme(next);
-  putSetting("darkMode", next);
+  putSetting("darkMode", next).catch(() => {});
 }
 
 // ── Display Name ────────────────────────────────────────────────────────────
@@ -666,7 +684,7 @@ function switchTab(key) {
   if (el.fabBtn) {
     el.fabBtn.classList.toggle("fab--hidden", key === "add");
   }
-  putSetting("lastTab", key);
+  putSetting("lastTab", key).catch(() => {});
   trackScreen(key);
 }
 
@@ -696,7 +714,7 @@ function formatSyncTime(date) {
 function updateLastSynced() {
   const now = new Date();
   el.lastSyncedTime.textContent = formatSyncTime(now);
-  putSetting("lastSyncedTime", now.toISOString());
+  putSetting("lastSyncedTime", now.toISOString()).catch(() => {});
 }
 
 async function restoreLastSynced() {
@@ -934,6 +952,7 @@ function closeIncomeSheet() {
 }
 
 async function saveQuickIncome() {
+  const saveBtn = document.querySelector("#incomeSheetSave");
   const amountInput = document.querySelector("#incomeSheetAmount");
   const descInput = document.querySelector("#incomeSheetDesc");
   const accountSelect = document.querySelector("#incomeSheetAccount");
@@ -951,37 +970,45 @@ async function saveQuickIncome() {
     return;
   }
 
-  const description = descInput?.value.trim() || "Income";
-  const dateKey = localDateKey();
-  const now = new Date().toISOString();
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    const description = descInput?.value.trim() || "Income";
+    const dateKey = localDateKey();
+    const now = new Date().toISOString();
 
-  const transaction = {
-    id: crypto.randomUUID(),
-    type: "credit",
-    amount,
-    accountId,
-    fromAccountId: null,
-    toAccountId: accountId,
-    category: "Salary",
-    description,
-    dateKey,
-    occurredAt: `${dateKey}T${now.slice(11, 23)}Z`,
-    createdAt: now,
-    updatedAt: now,
-    deleted: false,
-    syncStatus: "pending",
-    lastSyncError: "",
-  };
+    const transaction = {
+      id: crypto.randomUUID(),
+      type: "credit",
+      amount,
+      accountId,
+      fromAccountId: null,
+      toAccountId: accountId,
+      category: "Salary",
+      description,
+      dateKey,
+      occurredAt: `${dateKey}T${now.slice(11, 23)}Z`,
+      createdAt: now,
+      updatedAt: now,
+      deleted: false,
+      syncStatus: "pending",
+      lastSyncError: "",
+    };
 
-  await putExpense(transaction);
-  logAudit("expense", transaction.id, "create", null, transaction);
-  lastSelectedAccountId = accountId;
+    await putExpense(transaction);
+    logAudit("expense", transaction.id, "create", null, transaction);
+    lastSelectedAccountId = accountId;
 
-  closeIncomeSheet();
-  await refreshUI();
-  haptic("success");
-  showToast("Income added ✓");
-  syncPendingRecords();
+    closeIncomeSheet();
+    await refreshUI();
+    haptic("success");
+    showToast("Income added ✓");
+    syncPendingRecords();
+  } catch (error) {
+    reportError(error, "saveQuickIncome");
+    showToast("Failed to save income. Please try again.", "error");
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
 }
 
 function initIncomeSheet() {
@@ -1009,11 +1036,12 @@ function initIncomeSheet() {
 
 // ── Main Refresh ────────────────────────────────────────────────────────────
 async function refreshUI() {
-  [cachedExpenses, cachedAccounts, cachedBudgets, cachedRecurring] = await Promise.all([
+  [cachedExpenses, cachedAccounts, cachedBudgets, cachedRecurring, cachedWaterRotations] = await Promise.all([
     getAllExpenses(),
     getAllAccounts(),
     getAllBudgets(),
     getAllRecurring(),
+    getAllWaterRotations(),
   ]);
   balanceCache.clear();
   recomputeVisibleExpenses();
@@ -1021,6 +1049,7 @@ async function refreshUI() {
   renderMotivation();
   renderBudgets();
   renderRecurring();
+  renderWaterRotations();
   renderRecentTransactions();
   renderInsightsKpi();
   renderInsightsForTab(activeInsightsTab);
@@ -1030,6 +1059,7 @@ async function refreshUI() {
   renderAdjustmentsSummary();
   populateAccountDropdowns();
   applyUserName();
+  renderSpecialDayBanner();
 }
 
 // ── Summary Cards ───────────────────────────────────────────────────────────
@@ -1071,8 +1101,11 @@ function renderSummary() {
   const heroIncome = effectiveCarryForward + thisMonthCredits;
 
   const dayOfMonth = new Date().getDate();
-  const avgDaily = dayOfMonth > 0 ? monthExpense / dayOfMonth : 0;
-  const savings = monthIncome > 0 ? Math.round(((monthIncome - monthExpense) / monthIncome) * 100) : 0;
+  const avgDaily = dayOfMonth > 0 ? heroSpent / dayOfMonth : 0;
+
+  // Savings = Income - Spent (straightforward)
+  const savings = heroIncome > 0 ? Math.round(((heroIncome - heroSpent) / heroIncome) * 100) : 0;
+  const savingsSurplus = heroIncome - heroSpent;
 
   // Quick stat tiles (animated)
   el.todayTotal._formatter = formatMoney;
@@ -1082,10 +1115,10 @@ function renderSummary() {
   const prevMonth = Number(el.monthTotal._lastVal) || 0;
 
   animateValue(el.todayTotal, prevToday, todayExpense);
-  animateValue(el.monthTotal, prevMonth, monthExpense);
+  animateValue(el.monthTotal, prevMonth, heroSpent);
 
   el.todayTotal._lastVal = todayExpense;
-  el.monthTotal._lastVal = monthExpense;
+  el.monthTotal._lastVal = heroSpent;
 
   if (el.dailyAvgCard) {
     el.dailyAvgCard._formatter = formatMoney;
@@ -1102,10 +1135,10 @@ function renderSummary() {
   }
   const savSub = document.getElementById("savingsSub");
   if (savSub) {
-    if (monthIncome <= 0) { savSub.textContent = "No income yet"; savSub.style.color = ""; }
-    else if (savings < 0) { savSub.textContent = "Spent more than earned"; savSub.style.color = "var(--color-danger)"; }
+    if (heroIncome <= 0) { savSub.textContent = "No income yet"; savSub.style.color = ""; }
+    else if (savings < 0) { savSub.textContent = `Over by ${formatMoney(Math.abs(savingsSurplus))}`; savSub.style.color = "var(--color-danger)"; }
     else if (savings >= 30) { savSub.textContent = "Great discipline!"; savSub.style.color = "var(--color-success)"; }
-    else { savSub.textContent = `${formatMoney(monthIncome - monthExpense)} saved`; savSub.style.color = ""; }
+    else { savSub.textContent = `${formatMoney(savingsSurplus)} saved`; savSub.style.color = ""; }
   }
 
   // Balance Hero Card
@@ -1436,8 +1469,11 @@ function renderMotivation() {
     currentSlide = index;
   }
 
-  // Dot click handler
-  el.insightDots.addEventListener("click", (e) => {
+  // Dot click handler — remove previous listener to prevent accumulation
+  if (el.insightDots._clickHandler) {
+    el.insightDots.removeEventListener("click", el.insightDots._clickHandler);
+  }
+  el.insightDots._clickHandler = (e) => {
     const dot = e.target.closest(".insight-dot");
     if (!dot) return;
     const index = Number(dot.dataset.index);
@@ -1447,7 +1483,8 @@ function renderMotivation() {
     insightInterval = setInterval(() => {
       goToSlide((currentSlide + 1) % insights.length);
     }, 5000);
-  });
+  };
+  el.insightDots.addEventListener("click", el.insightDots._clickHandler);
 
   // Start auto-rotate
   insightInterval = setInterval(() => {
@@ -1592,6 +1629,1578 @@ function renderRecurring() {
     `;
   }
   list.innerHTML = html;
+}
+
+// ── Water Rotation (Thanneer Murai) ────────────────────────────────────────
+function renderWaterRotations() {
+  const list = document.querySelector("#waterRotationList");
+  if (!list) return;
+
+  const hint = document.querySelector("#waterRotationToggleHint");
+  const active = cachedWaterRotations.filter((r) => r.active && !r.deleted);
+
+  if (hint) {
+    const todayCount = active.filter((r) => isReminderDueToday(r)).length;
+    if (todayCount > 0) {
+      hint.textContent = `${todayCount} today!`;
+      hint.style.color = "#3b82f6";
+      hint.style.fontWeight = "600";
+    } else if (active.length > 0) {
+      const nextRotation = active
+        .sort((a, b) => a.nextDate.localeCompare(b.nextDate))[0];
+      hint.textContent = `Next: ${formatRelativeDate(nextRotation.nextDate)}`;
+      hint.style.color = "";
+      hint.style.fontWeight = "";
+    } else {
+      hint.textContent = "";
+    }
+  }
+
+  if (!active.length) {
+    list.innerHTML = renderEmptyState(
+      "recurring",
+      "No water turns set up yet. Tap <strong>+ Add Water Turn</strong> to get started."
+    );
+    return;
+  }
+
+  // Show notification permission banner if needed
+  const notifPerm = getNotificationPermission();
+  let notifBanner = "";
+  if (notifPerm !== "granted" && notifPerm !== "unsupported") {
+    notifBanner = `
+      <div class="water-notif-banner">
+        <span>🔔 Enable notifications to get reminded on water turn days</span>
+        <button type="button" class="water-notif-banner__btn" data-action="enable-water-notif">Enable</button>
+      </div>`;
+  }
+
+  const today = localDateKey();
+  let html = notifBanner;
+  const sorted = [...active].sort((a, b) => a.nextDate.localeCompare(b.nextDate));
+
+  for (const rot of sorted) {
+    const isToday = rot.nextDate === today;
+    const isPostponed = rot.status === "postponed";
+    const relative = formatRelativeDate(rot.nextDate);
+    const dateObj = new Date(rot.nextDate + "T00:00:00");
+    const dateStr = dateObj.toLocaleDateString(appSettings.locale, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+
+    let badgeClass = "water-rotation-card__date-badge--upcoming";
+    let badgeIcon = "📅";
+    if (isToday) {
+      badgeClass = "water-rotation-card__date-badge--today";
+      badgeIcon = "💧";
+    } else if (isPostponed) {
+      badgeClass = "water-rotation-card__date-badge--postponed";
+      badgeIcon = "⏭️";
+    }
+
+    let cardClass = "water-rotation-card";
+    if (isToday) cardClass += " water-rotation-card--today";
+    if (isPostponed) cardClass += " water-rotation-card--postponed";
+
+    const alertHtml = isToday
+      ? `<div class="water-rotation-card__alert">
+           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+           Innikku thanneer murai! Reminder at ${escapeHtml(rot.reminderTime || "17:30")}
+         </div>`
+      : "";
+
+    const postponeReason = isPostponed && rot.postponeReason
+      ? `<span class="water-rotation-card__cycle">⚠️ ${escapeHtml(rot.postponeReason)}</span>`
+      : "";
+
+    const historyCount = (rot.history || []).length;
+
+    html += `
+      <div class="${cardClass}" data-water-id="${escapeHtml(rot.id)}">
+        <div class="water-rotation-card__top">
+          <div class="water-rotation-card__info">
+            <div class="water-rotation-card__name">
+              <span class="water-rotation-card__name-icon">💧</span>
+              ${escapeHtml(rot.name)}
+            </div>
+            <div class="water-rotation-card__meta">
+              <span class="water-rotation-card__date-badge water-rotation-card__date-tap ${badgeClass}" data-action="edit-water" data-water-id="${escapeHtml(rot.id)}" title="Tap to change date">
+                ${badgeIcon} ${escapeHtml(relative)} · ${escapeHtml(dateStr)}
+              </span>
+              <span class="water-rotation-card__cycle">🔄 Every ${rot.cycleDays} days</span>
+              <span class="water-rotation-card__reminder water-rotation-card__date-tap" data-action="edit-water" data-water-id="${escapeHtml(rot.id)}" title="Tap to change time">🔔 ${escapeHtml(rot.reminderTime || "17:30")}</span>
+              ${postponeReason}
+            </div>
+          </div>
+        </div>
+        ${alertHtml}
+        <div class="water-rotation-card__bottom">
+          <div class="water-rotation-card__bottom-actions">
+            <button type="button" class="water-btn water-btn--done" data-action="complete-water" data-water-id="${escapeHtml(rot.id)}">✅ Done</button>
+            <button type="button" class="water-btn water-btn--postpone" data-action="postpone-water" data-water-id="${escapeHtml(rot.id)}">⏭️ Postpone</button>
+            ${historyCount > 0 ? `<button type="button" class="water-btn water-btn--history" data-action="water-history" data-water-id="${escapeHtml(rot.id)}">📜 ${historyCount}</button>` : ""}
+          </div>
+          <div class="water-rotation-card__actions">
+            <button type="button" class="water-btn water-btn--edit" data-action="edit-water" data-water-id="${escapeHtml(rot.id)}" aria-label="Edit">✏️</button>
+            <button type="button" class="water-btn water-btn--delete" data-action="delete-water" data-water-id="${escapeHtml(rot.id)}" aria-label="Delete">🗑️</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  list.innerHTML = html;
+}
+
+// ── Water Rotation: Add / Edit Modal ──────────────────────────────────────
+function openWaterRotationModal(editId = null) {
+  const modal = document.querySelector("#waterRotationModal");
+  const title = document.querySelector("#waterRotationModalTitle");
+  const nameInput = document.querySelector("#waterRotationName");
+  const cycleInput = document.querySelector("#waterRotationCycleDays");
+  const dateInput = document.querySelector("#waterRotationNextDate");
+  const timeInput = document.querySelector("#waterRotationReminderTime");
+  const msgEl = document.querySelector("#waterRotationModalMessage");
+  if (!modal) return;
+
+  editingWaterRotationId = editId;
+
+  // Reset pattern chip selection
+  const chips = document.querySelectorAll(".wm__pat");
+  chips.forEach((c) => c.classList.remove("wm__pat--selected"));
+
+  if (editId) {
+    const rot = cachedWaterRotations.find((r) => r.id === editId);
+    if (!rot) return;
+    title.textContent = "Edit Water Turn";
+    nameInput.value = rot.name || "";
+    cycleInput.value = rot.cycleDays || 6;
+    setDatePickerValue(rot.nextDate || localDateKey());
+    setTimePickerValue(rot.reminderTime || "17:30");
+    // Highlight matching pattern chip
+    const matchChip = document.querySelector(`.wm__pat[data-cycle="${rot.cycleDays}"]`);
+    if (matchChip) matchChip.classList.add("wm__pat--selected");
+    else {
+      const customChip = document.querySelector('.wm__pat[data-cycle="custom"]');
+      if (customChip) customChip.classList.add("wm__pat--selected");
+    }
+  } else {
+    title.textContent = "Add Water Turn";
+    nameInput.value = "";
+    cycleInput.value = 6;
+    setDatePickerValue(localDateKey());
+    setTimePickerValue("17:30");
+  }
+
+  updateCyclePreview();
+  updateDatePreview();
+  syncDateChipSelection();
+  syncTimeChipSelection();
+  if (msgEl) msgEl.textContent = "";
+  modal.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  nameInput.focus();
+}
+
+/** Show a preview of what the next few dates look like based on cycle days */
+function updateCyclePreview() {
+  const preview = document.querySelector("#waterCyclePreview");
+  const dateInput = document.querySelector("#waterRotationNextDate");
+  const cycleInput = document.querySelector("#waterRotationCycleDays");
+  if (!preview || !dateInput || !cycleInput) return;
+
+  const nextDate = dateInput.value;
+  const cycleDays = parseInt(cycleInput.value, 10);
+  if (!nextDate || !cycleDays || cycleDays < 1) {
+    preview.textContent = "";
+    return;
+  }
+
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const dates = [nextDate];
+  let d = nextDate;
+  for (let i = 0; i < 3; i++) {
+    d = calculateNextDate(d, cycleDays);
+    dates.push(d);
+  }
+
+  const labels = dates.map((dt) => {
+    const dateObj = new Date(dt + "T00:00:00");
+    return `${dayNames[dateObj.getDay()]} ${dateObj.getDate()}/${dateObj.getMonth() + 1}`;
+  });
+
+  preview.textContent = `Preview: ${labels.join(" → ")}`;
+}
+
+/** Show a friendly label for the selected date */
+function updateDatePreview() {
+  const preview = document.querySelector("#waterDatePreview");
+  const dateInput = document.querySelector("#waterRotationNextDate");
+  if (!preview || !dateInput || !dateInput.value) { if (preview) preview.textContent = ""; return; }
+
+  const dateObj = new Date(dateInput.value + "T00:00:00");
+  const dayStr = dateObj.toLocaleDateString(appSettings.locale, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  const relative = formatRelativeDate(dateInput.value);
+  preview.textContent = `${relative} — ${dayStr} night`;
+}
+
+/** Highlight the matching date chip if the date input matches an offset */
+function syncDateChipSelection() {
+  const dateInput = document.querySelector("#waterRotationNextDate");
+  const container = document.querySelector("#waterDateChips");
+  if (!dateInput || !container) return;
+
+  container.querySelectorAll(".wm__chip").forEach((chip) => {
+    const offset = parseInt(chip.dataset.dateOffset, 10);
+    if (isNaN(offset)) return;
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    const dk = localDateKey(d);
+    chip.classList.toggle("wm__chip--selected", dk === dateInput.value);
+  });
+}
+
+/** Highlight the matching time chip */
+function syncTimeChipSelection() {
+  const timeInput = document.querySelector("#waterRotationReminderTime");
+  const container = document.querySelector("#waterTimeChips");
+  if (!timeInput || !container) return;
+
+  container.querySelectorAll(".wm__chip").forEach((chip) => {
+    chip.classList.toggle("wm__chip--selected", chip.dataset.time === timeInput.value);
+  });
+}
+
+function closeWaterRotationModal() {
+  const modal = document.querySelector("#waterRotationModal");
+  if (modal) {
+    modal.classList.add("hidden");
+    document.body.classList.remove("modal-open");
+  }
+  editingWaterRotationId = null;
+  // Close pickers when modal closes
+  const dpDrop = document.querySelector("#datePickerDropdown");
+  const tpDrop = document.querySelector("#timePickerDropdown");
+  if (dpDrop) dpDrop.hidden = true;
+  if (tpDrop) tpDrop.hidden = true;
+}
+
+// ── Custom Date Picker (Premium) ─────────────────────────────────────────────
+let _dpViewYear = new Date().getFullYear();
+let _dpViewMonth = new Date().getMonth() + 1; // 1-indexed
+
+function setDatePickerValue(dateKey) {
+  const hiddenInput = document.querySelector("#waterRotationNextDate");
+  const displayText = document.querySelector("#datePickerDisplayText");
+  const displaySub = document.querySelector("#datePickerDisplaySub");
+  if (hiddenInput) hiddenInput.value = dateKey;
+
+  if (displayText && dateKey) {
+    const d = new Date(dateKey + "T00:00:00");
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    displayText.textContent = `${dayNames[d.getDay()]}, ${d.getDate()} ${monthNames[d.getMonth()]}`;
+
+    // Show relative label as subtitle
+    if (displaySub) {
+      displaySub.textContent = formatRelativeDate(dateKey);
+    }
+
+    // Update calendar view month to match selected date
+    _dpViewYear = d.getFullYear();
+    _dpViewMonth = d.getMonth() + 1;
+  }
+
+  renderDatePickerCalendar();
+}
+
+async function renderDatePickerCalendar() {
+  const daysContainer = document.querySelector("#datePickerDays");
+  const monthLabel = document.querySelector("#datePickerMonthLabel");
+  const tamilLabel = document.querySelector("#datePickerTamilLabel");
+  const weekdaysContainer = document.querySelector(".cdp__weekdays");
+  if (!daysContainer) return;
+
+  const monthNames = ["January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"];
+  if (monthLabel) monthLabel.textContent = `${monthNames[_dpViewMonth - 1]} ${_dpViewYear}`;
+
+  // Tamil month subtitle
+  try {
+    const { getTamilMonthsForGregorianMonth } = await import("./tn-calendar.js");
+    const tamilInfo = getTamilMonthsForGregorianMonth(_dpViewYear, _dpViewMonth);
+    if (tamilLabel && tamilInfo.label) tamilLabel.textContent = tamilInfo.label;
+    else if (tamilLabel) tamilLabel.textContent = "";
+  } catch { if (tamilLabel) tamilLabel.textContent = ""; }
+
+  // Weekday headers
+  if (weekdaysContainer && !weekdaysContainer.hasChildNodes()) {
+    ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].forEach((d) => {
+      const span = document.createElement("span");
+      span.className = "cdp__wday";
+      span.textContent = d;
+      weekdaysContainer.appendChild(span);
+    });
+  }
+
+  const firstDay = new Date(_dpViewYear, _dpViewMonth - 1, 1).getDay();
+  const daysInMonth = new Date(_dpViewYear, _dpViewMonth, 0).getDate();
+  const today = new Date();
+  const todayKey = localDateKey(today);
+  const selectedKey = document.querySelector("#waterRotationNextDate")?.value || "";
+
+  // Get events for this month for dot indicators
+  let eventMap = null;
+  try {
+    const { getEventsForMonth } = await import("./tn-calendar.js");
+    const mk = `${_dpViewYear}-${String(_dpViewMonth).padStart(2, "0")}`;
+    eventMap = getEventsForMonth(mk);
+  } catch { /* no events available */ }
+
+  let html = "";
+  // Blanks for offset
+  for (let i = 0; i < firstDay; i++) {
+    html += `<span class="cdp__day cdp__day--blank"></span>`;
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dk = `${_dpViewYear}-${String(_dpViewMonth).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    let cls = "cdp__day";
+    if (dk === todayKey) cls += " cdp__day--today";
+    if (dk === selectedKey) cls += " cdp__day--selected";
+
+    // Check for events on this day
+    const dayEvents = eventMap?.get(dk);
+    let eventDot = "";
+    if (dayEvents?.length) {
+      const t = dayEvents[0].type || "festival";
+      cls += ` cdp__day--event cdp__day--event-${t}`;
+      eventDot = `<i class="cdp__event-dot cdp__event-dot--${t}"></i>`;
+    }
+
+    html += `<span class="${cls}" data-date="${dk}"><span class="cdp__day-num">${d}</span>${eventDot}</span>`;
+  }
+  daysContainer.innerHTML = html;
+}
+
+function initCustomDatePicker() {
+  const display = document.querySelector("#datePickerDisplay");
+  const dropdown = document.querySelector("#datePickerDropdown");
+  const prevBtn = document.querySelector("#datePickerPrev");
+  const nextBtn = document.querySelector("#datePickerNext");
+  const daysContainer = document.querySelector("#datePickerDays");
+  const todayBtn = document.querySelector("#datePickerToday");
+  if (!display || !dropdown) return;
+
+  // Toggle dropdown on display tap
+  display.addEventListener("click", (e) => {
+    e.stopPropagation();
+    // Close time picker if open
+    const tpDrop = document.querySelector("#timePickerDropdown");
+    if (tpDrop && !tpDrop.hidden) { tpDrop.hidden = true; document.querySelector("#timePickerDisplay")?.classList.remove("ctp__display--open"); }
+
+    const isOpen = !dropdown.hidden;
+    dropdown.hidden = isOpen;
+    display.classList.toggle("cdp__display--open", !isOpen);
+    if (!isOpen) renderDatePickerCalendar();
+  });
+
+  // Nav buttons with swipe animation
+  if (prevBtn) {
+    prevBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      _dpViewMonth--;
+      if (_dpViewMonth < 1) { _dpViewMonth = 12; _dpViewYear--; }
+      daysContainer?.classList.add("cdp__days--slide-right");
+      renderDatePickerCalendar();
+      setTimeout(() => daysContainer?.classList.remove("cdp__days--slide-right"), 200);
+    });
+  }
+  if (nextBtn) {
+    nextBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      _dpViewMonth++;
+      if (_dpViewMonth > 12) { _dpViewMonth = 1; _dpViewYear++; }
+      daysContainer?.classList.add("cdp__days--slide-left");
+      renderDatePickerCalendar();
+      setTimeout(() => daysContainer?.classList.remove("cdp__days--slide-left"), 200);
+    });
+  }
+
+  // Today button
+  if (todayBtn) {
+    todayBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const dk = localDateKey();
+      setDatePickerValue(dk);
+      syncDateChipSelection();
+      updateCyclePreview();
+      updateDatePreview();
+      dropdown.hidden = true;
+      display.classList.remove("cdp__display--open");
+    });
+  }
+
+  // Day click
+  if (daysContainer) {
+    daysContainer.addEventListener("click", (e) => {
+      const dayEl = e.target.closest(".cdp__day:not(.cdp__day--blank)");
+      if (!dayEl) return;
+      const dk = dayEl.dataset.date;
+      if (!dk) return;
+
+      // Add click animation
+      dayEl.classList.add("cdp__day--pop");
+      setTimeout(() => dayEl.classList.remove("cdp__day--pop"), 200);
+
+      setDatePickerValue(dk);
+      syncDateChipSelection();
+      updateCyclePreview();
+      updateDatePreview();
+
+      // Close dropdown with delay for animation
+      setTimeout(() => {
+        dropdown.hidden = true;
+        display.classList.remove("cdp__display--open");
+      }, 150);
+    });
+  }
+
+  // Close dropdown when clicking outside
+  document.addEventListener("click", (e) => {
+    if (!dropdown.hidden && !e.target.closest("#customDatePicker")) {
+      dropdown.hidden = true;
+      display.classList.remove("cdp__display--open");
+    }
+  });
+}
+
+// ── Custom Time Picker (Premium Drum-Roller) ────────────────────────────────
+function formatTime12(h24, m) {
+  const h12 = h24 % 12 || 12;
+  const ampm = h24 < 12 ? "AM" : "PM";
+  return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+function setTimePickerValue(time24) {
+  const hiddenInput = document.querySelector("#waterRotationReminderTime");
+  const displayText = document.querySelector("#timePickerDisplayText");
+  if (hiddenInput) hiddenInput.value = time24;
+
+  if (displayText && time24) {
+    const [h, m] = time24.split(":").map(Number);
+    displayText.textContent = formatTime12(h, m);
+  }
+
+  // Sync wheel positions if dropdown is open
+  syncTimeWheels(time24);
+}
+
+function syncTimeWheels(time24) {
+  if (!time24) return;
+  const [h24, m] = time24.split(":").map(Number);
+  const h12 = h24 % 12 || 12;
+  const ampm = h24 < 12 ? "AM" : "PM";
+
+  const hourCol = document.querySelector("#timePickerHours");
+  const minCol = document.querySelector("#timePickerMinutes");
+  const ampmCol = document.querySelector("#timePickerAmPm");
+
+  [
+    [hourCol, h12],
+    [minCol, m],
+    [ampmCol, ampm],
+  ].forEach(([col, val]) => {
+    if (!col) return;
+    col.querySelectorAll(".ctp__drum-item").forEach((el) => {
+      const isActive = typeof val === "string" ? el.dataset.value === val : Number(el.dataset.value) === val;
+      el.classList.toggle("ctp__drum-item--active", isActive);
+    });
+    const active = col.querySelector(".ctp__drum-item--active");
+    if (active) setTimeout(() => active.scrollIntoView({ block: "center", behavior: "smooth" }), 30);
+  });
+}
+
+function getTimeFromWheels() {
+  const hourCol = document.querySelector("#timePickerHours");
+  const minCol = document.querySelector("#timePickerMinutes");
+  const ampmCol = document.querySelector("#timePickerAmPm");
+
+  const h12 = Number(hourCol?.querySelector(".ctp__drum-item--active")?.dataset.value || 12);
+  const m = Number(minCol?.querySelector(".ctp__drum-item--active")?.dataset.value || 0);
+  const ampm = ampmCol?.querySelector(".ctp__drum-item--active")?.dataset.value || "PM";
+
+  let h24 = h12;
+  if (ampm === "AM" && h12 === 12) h24 = 0;
+  else if (ampm === "PM" && h12 !== 12) h24 = h12 + 12;
+
+  return `${String(h24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function initCustomTimePicker() {
+  const display = document.querySelector("#timePickerDisplay");
+  const dropdown = document.querySelector("#timePickerDropdown");
+  const hourCol = document.querySelector("#timePickerHours");
+  const minCol = document.querySelector("#timePickerMinutes");
+  const ampmCol = document.querySelector("#timePickerAmPm");
+  const doneBtn = document.querySelector("#timePickerDone");
+  if (!display || !dropdown) return;
+
+  // Build hour items (1–12)
+  if (hourCol && !hourCol.hasChildNodes()) {
+    for (let h = 1; h <= 12; h++) {
+      const el = document.createElement("div");
+      el.className = "ctp__drum-item";
+      el.dataset.value = h;
+      el.textContent = String(h).padStart(2, "0");
+      hourCol.appendChild(el);
+    }
+  }
+
+  // Build minute items (00, 05, 10…55)
+  if (minCol && !minCol.hasChildNodes()) {
+    for (let m = 0; m < 60; m += 5) {
+      const el = document.createElement("div");
+      el.className = "ctp__drum-item";
+      el.dataset.value = m;
+      el.textContent = String(m).padStart(2, "0");
+      minCol.appendChild(el);
+    }
+  }
+
+  // Build AM/PM items
+  if (ampmCol && !ampmCol.hasChildNodes()) {
+    ["AM", "PM"].forEach((v) => {
+      const el = document.createElement("div");
+      el.className = "ctp__drum-item";
+      el.dataset.value = v;
+      el.textContent = v;
+      ampmCol.appendChild(el);
+    });
+  }
+
+  // Toggle dropdown
+  display.addEventListener("click", (e) => {
+    e.stopPropagation();
+    // Close date picker if open
+    const dpDrop = document.querySelector("#datePickerDropdown");
+    if (dpDrop && !dpDrop.hidden) { dpDrop.hidden = true; document.querySelector("#datePickerDisplay")?.classList.remove("cdp__display--open"); }
+
+    const isOpen = !dropdown.hidden;
+    dropdown.hidden = isOpen;
+    display.classList.toggle("ctp__display--open", !isOpen);
+    if (!isOpen) {
+      const current = document.querySelector("#waterRotationReminderTime")?.value || "17:30";
+      syncTimeWheels(current);
+    }
+  });
+
+  // Handle item clicks on all columns
+  [hourCol, minCol, ampmCol].forEach((col) => {
+    if (!col) return;
+    col.addEventListener("click", (e) => {
+      const item = e.target.closest(".ctp__drum-item");
+      if (!item) return;
+      col.querySelectorAll(".ctp__drum-item").forEach((el) => el.classList.remove("ctp__drum-item--active"));
+      item.classList.add("ctp__drum-item--active");
+      item.scrollIntoView({ block: "center", behavior: "smooth" });
+
+      // Live-update the display text
+      const time24 = getTimeFromWheels();
+      const displayText = document.querySelector("#timePickerDisplayText");
+      const [h, m] = time24.split(":").map(Number);
+      if (displayText) displayText.textContent = formatTime12(h, m);
+    });
+  });
+
+  // Scroll-snap: pick the closest item after scroll ends
+  [hourCol, minCol].forEach((col) => {
+    if (!col) return;
+    let scrollTimer;
+    col.addEventListener("scroll", () => {
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        const items = col.querySelectorAll(".ctp__drum-item");
+        const colRect = col.getBoundingClientRect();
+        const centerY = colRect.top + colRect.height / 2;
+        let closest = null;
+        let minDist = Infinity;
+        items.forEach((item) => {
+          const r = item.getBoundingClientRect();
+          const dist = Math.abs(r.top + r.height / 2 - centerY);
+          if (dist < minDist) { minDist = dist; closest = item; }
+        });
+        if (closest) {
+          col.querySelectorAll(".ctp__drum-item").forEach((el) => el.classList.remove("ctp__drum-item--active"));
+          closest.classList.add("ctp__drum-item--active");
+          closest.scrollIntoView({ block: "center", behavior: "smooth" });
+
+          // Update display
+          const time24 = getTimeFromWheels();
+          const displayText = document.querySelector("#timePickerDisplayText");
+          const [h, m] = time24.split(":").map(Number);
+          if (displayText) displayText.textContent = formatTime12(h, m);
+        }
+      }, 80);
+    });
+  });
+
+  // Done button
+  if (doneBtn) {
+    doneBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const time24 = getTimeFromWheels();
+      setTimePickerValue(time24);
+      syncTimeChipSelection();
+      dropdown.hidden = true;
+      display.classList.remove("ctp__display--open");
+    });
+  }
+
+  // Close dropdown when clicking outside
+  document.addEventListener("click", (e) => {
+    if (!dropdown.hidden && !e.target.closest("#customTimePicker")) {
+      const time24 = getTimeFromWheels();
+      setTimePickerValue(time24);
+      syncTimeChipSelection();
+      dropdown.hidden = true;
+      display.classList.remove("ctp__display--open");
+    }
+  });
+}
+
+// ── Special Day Banner + Birthday Wish ────────────────────────────────────────
+async function renderSpecialDayBanner() {
+  const banner = document.querySelector("#specialDayBanner");
+  if (!banner) return;
+
+  try {
+    const { getEventsForDate, getDayInfo } = await import("./tn-calendar.js");
+    const todayKey = localDateKey();
+    const events = getEventsForDate(todayKey);
+    const dayInfo = getDayInfo(todayKey);
+
+    // Also check next 3 days for upcoming events
+    const upcomingChips = [];
+    for (let offset = 1; offset <= 3; offset++) {
+      const d = new Date();
+      d.setDate(d.getDate() + offset);
+      const dk = localDateKey(d);
+      const upEvents = getEventsForDate(dk);
+      if (upEvents.length) {
+        const label = offset === 1 ? "Tomorrow" : offset === 2 ? "In 2 days" : "In 3 days";
+        for (const e of upEvents) {
+          upcomingChips.push({ ...e, _upcoming: label });
+        }
+      }
+    }
+
+    if (!events.length && !dayInfo.moon?.isSpecial && !upcomingChips.length) {
+      banner.hidden = true;
+      return;
+    }
+
+    let html = "";
+
+    // Check if it's the user's birthday
+    const isBirthday = events.some((e) => e.nameTA === "விஜய் பிறந்தநாள்" || e.name === "Vijay Birthday");
+
+    // Build event chips
+    const chips = events.map((e) => {
+      const typeColors = {
+        birthday: { bg: "rgba(236, 72, 153, 0.12)", border: "rgba(236, 72, 153, 0.3)", color: "#ec4899", icon: "🎂" },
+        anniversary: { bg: "rgba(225, 29, 72, 0.12)", border: "rgba(225, 29, 72, 0.3)", color: "#e11d48", icon: "💞" },
+        festival: { bg: "rgba(245, 158, 11, 0.12)", border: "rgba(245, 158, 11, 0.3)", color: "#f59e0b", icon: "🎉" },
+        national: { bg: "rgba(59, 130, 246, 0.12)", border: "rgba(59, 130, 246, 0.3)", color: "#3b82f6", icon: "🇮🇳" },
+        government: { bg: "rgba(16, 185, 129, 0.12)", border: "rgba(16, 185, 129, 0.3)", color: "#10b981", icon: "📋" },
+        regional: { bg: "rgba(139, 92, 246, 0.12)", border: "rgba(139, 92, 246, 0.3)", color: "#8b5cf6", icon: "🏛️" },
+      };
+      const c = typeColors[e.type] || typeColors.festival;
+      return `<div class="sdb__chip" style="background:${c.bg};border:1px solid ${c.border};color:${c.color}">
+        <span class="sdb__chip-icon">${e.emoji || c.icon}</span>
+        <span class="sdb__chip-text">${e.nameTA || e.name}</span>
+      </div>`;
+    });
+
+    // Moon phase info
+    if (dayInfo.moon?.isSpecial) {
+      const moonColor = dayInfo.moon.phase === "new" ? "#a78bfa" : "#fbbf24";
+      chips.push(`<div class="sdb__chip" style="background:rgba(167,139,250,0.1);border:1px solid rgba(167,139,250,0.2);color:${moonColor}">
+        <span class="sdb__chip-icon">${dayInfo.moon.emoji}</span>
+        <span class="sdb__chip-text">${dayInfo.moon.nameTA}</span>
+      </div>`);
+    }
+
+    // Add upcoming event chips (dimmer styling)
+    for (const ue of upcomingChips) {
+      chips.push(`<div class="sdb__chip sdb__chip--upcoming" style="background:rgba(148,163,184,0.06);border:1px solid rgba(148,163,184,0.15);color:var(--text-secondary,#94a3b8)">
+        <span class="sdb__chip-icon">${ue.emoji || "📅"}</span>
+        <span class="sdb__chip-text">${ue.nameTA || ue.name} <small>(${ue._upcoming})</small></span>
+      </div>`);
+    }
+
+    const todayLabel = events.length || dayInfo.moon?.isSpecial ? "✨ Today's Special" : "📅 Coming Up";
+
+    html = `<div class="sdb__inner">
+      <div class="sdb__label">${todayLabel}</div>
+      <div class="sdb__chips">${chips.join("")}</div>
+    </div>`;
+
+    banner.innerHTML = html;
+    banner.hidden = false;
+
+    // Show birthday wish if it's the user's birthday
+    if (isBirthday) showBirthdayWish();
+  } catch {
+    banner.hidden = true;
+  }
+}
+
+function showBirthdayWish() {
+  // Only show once per day
+  const todayKey = localDateKey();
+  const shownKey = `birthdayWish_${todayKey}`;
+  if (localStorage.getItem(shownKey)) return;
+
+  const overlay = document.querySelector("#birthdayWishOverlay");
+  const msgEl = document.querySelector("#birthdayWishMessage");
+  const closeBtn = document.querySelector("#birthdayWishClose");
+  const confettiEl = document.querySelector("#birthdayConfetti");
+  if (!overlay) return;
+
+  // Set message
+  const age = new Date().getFullYear() - 1998; // Approximate
+  if (msgEl) {
+    const messages = [
+      `Wishing you the most wonderful birthday! 🌟\nMay this year bring you joy, success & prosperity!`,
+      `Another year of amazing achievements awaits! 💫\nHave a fantastic birthday, Vijay!`,
+      `May your birthday be as special as you are! 🎊\nCheers to a year of happiness & growth!`,
+    ];
+    msgEl.textContent = messages[Math.floor(Math.random() * messages.length)];
+  }
+
+  // Generate confetti particles
+  if (confettiEl) {
+    const confettiColors = ["#f59e0b", "#ec4899", "#3b82f6", "#10b981", "#8b5cf6", "#ef4444", "#06b6d4", "#00a884"];
+    const shapes = ["●", "■", "▲", "★", "♦", "🎈", "🎉", "✨"];
+    let confettiHtml = "";
+    for (let i = 0; i < 40; i++) {
+      const color = confettiColors[Math.floor(Math.random() * confettiColors.length)];
+      const shape = shapes[Math.floor(Math.random() * shapes.length)];
+      const left = Math.random() * 100;
+      const delay = Math.random() * 3;
+      const duration = 2 + Math.random() * 3;
+      const size = 0.6 + Math.random() * 0.8;
+      confettiHtml += `<span class="birthday-confetti-piece" style="left:${left}%;animation-delay:${delay}s;animation-duration:${duration}s;font-size:${size}rem;color:${color}">${shape}</span>`;
+    }
+    confettiEl.innerHTML = confettiHtml;
+  }
+
+  overlay.hidden = false;
+  overlay.classList.add("birthday-wish--animate");
+  document.body.classList.add("modal-open");
+
+  // Haptic
+  haptic("success");
+
+  // Close handler
+  const close = () => {
+    overlay.classList.add("birthday-wish--exit");
+    localStorage.setItem(shownKey, "1");
+    setTimeout(() => {
+      overlay.hidden = true;
+      overlay.classList.remove("birthday-wish--animate", "birthday-wish--exit");
+      document.body.classList.remove("modal-open");
+    }, 400);
+  };
+
+  closeBtn?.addEventListener("click", close, { once: true });
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  }, { once: true });
+}
+
+async function saveWaterRotation() {
+  const nameInput = document.querySelector("#waterRotationName");
+  const cycleInput = document.querySelector("#waterRotationCycleDays");
+  const dateInput = document.querySelector("#waterRotationNextDate");
+  const timeInput = document.querySelector("#waterRotationReminderTime");
+  const msgEl = document.querySelector("#waterRotationModalMessage");
+  const saveBtn = document.querySelector("#saveWaterRotationBtn");
+
+  const name = nameInput?.value.trim();
+  if (!name) {
+    showMessage(msgEl, "Please enter a name.", true);
+    nameInput?.focus();
+    return;
+  }
+
+  const cycleDays = parseInt(cycleInput?.value, 10);
+  if (!cycleDays || cycleDays < 1 || cycleDays > 30) {
+    showMessage(msgEl, "Cycle days must be between 1 and 30.", true);
+    cycleInput?.focus();
+    return;
+  }
+
+  const nextDate = dateInput?.value;
+  if (!nextDate) {
+    showMessage(msgEl, "Please select the next turn date.", true);
+    dateInput?.focus();
+    return;
+  }
+
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    const reminderTime = timeInput?.value || "17:30";
+    const now = new Date().toISOString();
+
+    if (editingWaterRotationId) {
+      // Update existing
+      const existing = await getWaterRotation(editingWaterRotationId);
+      if (!existing) return;
+      existing.name = name;
+      existing.cycleDays = cycleDays;
+      existing.nextDate = nextDate;
+      existing.reminderTime = reminderTime;
+      existing.updatedAt = now;
+      await putWaterRotation(existing);
+      logAudit("waterRotation", existing.id, "update", null, existing);
+      showToast("Water turn updated ✓", "success");
+    } else {
+      // Create new
+      const rotation = {
+        id: crypto.randomUUID(),
+        name,
+        cycleDays,
+        nextDate,
+        reminderTime,
+        status: "scheduled",
+        postponeReason: "",
+        active: true,
+        deleted: false,
+        history: [],
+        createdAt: now,
+        updatedAt: now,
+      };
+      await putWaterRotation(rotation);
+      logAudit("waterRotation", rotation.id, "create", null, rotation);
+      showToast("Water turn added ✓", "success");
+    }
+
+    closeWaterRotationModal();
+    haptic("success");
+    await refreshUI();
+
+    // Auto-open the section
+    const section = document.querySelector("#waterRotationSection");
+    if (section && !section.open) section.open = true;
+  } catch (err) {
+    showToast("Failed to save water turn. Please try again.", "error");
+    reportError(err);
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+// ── Water Rotation: Complete ──────────────────────────────────────────────
+async function completeWaterRotation(id) {
+  try {
+    const rot = await getWaterRotation(id);
+    if (!rot) return;
+
+    const oldDate = rot.nextDate;
+    const historyEntry = {
+      date: oldDate,
+      status: "completed",
+      completedAt: new Date().toISOString(),
+    };
+
+    rot.history = rot.history || [];
+    rot.history.unshift(historyEntry);
+    rot.nextDate = calculateNextDate(oldDate, rot.cycleDays);
+    rot.status = "scheduled";
+    rot.postponeReason = "";
+    rot.updatedAt = new Date().toISOString();
+
+    await putWaterRotation(rot);
+    logAudit("waterRotation", rot.id, "complete", { oldDate }, rot);
+
+    haptic("success");
+    showSuccessAnimation();
+    showToast(`✅ Done! Next turn: ${formatRelativeDate(rot.nextDate)}`, "success");
+    await refreshUI();
+  } catch (err) {
+    showToast("Failed to complete water turn. Please try again.", "error");
+  }
+}
+
+// ── Water Rotation: Postpone ──────────────────────────────────────────────
+function openPostponeSheet(id) {
+  const sheet = document.querySelector("#waterPostponeSheet");
+  if (!sheet) return;
+
+  postponingWaterRotationId = id;
+  const rot = cachedWaterRotations.find((r) => r.id === id);
+  if (!rot) return;
+
+  const info = document.querySelector("#postponeCurrentInfo");
+  if (info) {
+    info.textContent = `${rot.name} — currently scheduled for ${formatRelativeDate(rot.nextDate)} (${rot.nextDate})`;
+  }
+
+  // Set tomorrow as default new date, with min=today to prevent past dates
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowKey = localDateKey(tomorrow);
+  const newDateInput = document.querySelector("#postponeNewDate");
+  if (newDateInput) {
+    newDateInput.value = tomorrowKey;
+    newDateInput.min = localDateKey(); // prevent past date selection
+  }
+
+  const reasonSelect = document.querySelector("#postponeReason");
+  if (reasonSelect) reasonSelect.value = "Shutdown";
+
+  const customField = document.querySelector("#postponeCustomReasonField");
+  if (customField) customField.style.display = "none";
+
+  const errorEl = document.querySelector("#postponeNewDateError");
+  if (errorEl) errorEl.textContent = "";
+
+  sheet.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  requestAnimationFrame(() => sheet.classList.add("open"));
+}
+
+function closePostponeSheet() {
+  const sheet = document.querySelector("#waterPostponeSheet");
+  if (!sheet) return;
+  sheet.classList.remove("open");
+  document.body.classList.remove("modal-open");
+  setTimeout(() => sheet.classList.add("hidden"), 300);
+  postponingWaterRotationId = null;
+}
+
+async function savePostpone() {
+  if (!postponingWaterRotationId) return;
+
+  const newDateInput = document.querySelector("#postponeNewDate");
+  const reasonSelect = document.querySelector("#postponeReason");
+  const customReasonInput = document.querySelector("#postponeCustomReason");
+  const errorEl = document.querySelector("#postponeNewDateError");
+
+  const newDate = newDateInput?.value;
+  if (!newDate) {
+    if (errorEl) errorEl.textContent = "Please select a new date.";
+    return;
+  }
+
+  // Prevent selecting a past date
+  const today = localDateKey();
+  if (newDate < today) {
+    if (errorEl) errorEl.textContent = "Date cannot be in the past.";
+    return;
+  }
+
+  let reason = reasonSelect?.value || "Other";
+  if (reason === "Other" && customReasonInput?.value.trim()) {
+    reason = customReasonInput.value.trim();
+  }
+
+  try {
+    const rot = await getWaterRotation(postponingWaterRotationId);
+    if (!rot) return;
+
+    const oldDate = rot.nextDate;
+    const historyEntry = {
+      date: oldDate,
+      status: "postponed",
+      reason,
+      newDate,
+      postponedAt: new Date().toISOString(),
+    };
+
+    rot.history = rot.history || [];
+    rot.history.unshift(historyEntry);
+    rot.nextDate = newDate;
+    rot.status = "postponed";
+    rot.postponeReason = reason;
+    rot.updatedAt = new Date().toISOString();
+
+    await putWaterRotation(rot);
+    logAudit("waterRotation", rot.id, "postpone", { oldDate, reason }, rot);
+
+    closePostponeSheet();
+    haptic("success");
+    showToast(`⏭️ Postponed to ${formatRelativeDate(newDate)}`, "warning");
+    await refreshUI();
+  } catch (err) {
+    showToast("Failed to save postponement. Please try again.", "error");
+  }
+}
+
+// ── Water Rotation: History ───────────────────────────────────────────────
+function openWaterHistory(id) {
+  const sheet = document.querySelector("#waterHistorySheet");
+  if (!sheet) return;
+
+  const rot = cachedWaterRotations.find((r) => r.id === id);
+  if (!rot) return;
+
+  const title = document.querySelector("#waterHistoryTitle");
+  if (title) title.textContent = `📜 ${rot.name} — History`;
+
+  const list = document.querySelector("#waterHistoryList");
+  if (!list) return;
+
+  const history = rot.history || [];
+  if (!history.length) {
+    list.innerHTML = '<p class="empty-state" style="padding: 20px; text-align: center;">No history yet.</p>';
+  } else {
+    list.innerHTML = history.map((entry) => {
+      const isCompleted = entry.status === "completed";
+      const iconClass = isCompleted ? "water-history-item__icon--completed" : "water-history-item__icon--postponed";
+      const icon = isCompleted ? "✅" : "⏭️";
+      const dateObj = new Date(entry.date + "T00:00:00");
+      const dateStr = dateObj.toLocaleDateString(appSettings.locale, {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+
+      let detail = "";
+      if (isCompleted) {
+        detail = "Completed";
+      } else {
+        detail = `Postponed: ${escapeHtml(entry.reason || "Unknown")}`;
+        if (entry.newDate) {
+          const newDateObj = new Date(entry.newDate + "T00:00:00");
+          const newDateStr = newDateObj.toLocaleDateString(appSettings.locale, {
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+          });
+          detail += ` → ${escapeHtml(newDateStr)}`;
+        }
+      }
+
+      return `
+        <div class="water-history-item">
+          <div class="water-history-item__icon ${iconClass}">${icon}</div>
+          <div class="water-history-item__info">
+            <div class="water-history-item__date">${escapeHtml(dateStr)}</div>
+            <div class="water-history-item__detail">${detail}</div>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  sheet.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  requestAnimationFrame(() => sheet.classList.add("open"));
+}
+
+function closeWaterHistory() {
+  const sheet = document.querySelector("#waterHistorySheet");
+  if (!sheet) return;
+  sheet.classList.remove("open");
+  document.body.classList.remove("modal-open");
+  setTimeout(() => sheet.classList.add("hidden"), 300);
+}
+
+// ── Water Rotation: Delete ────────────────────────────────────────────────
+async function deleteWaterRotationById(id) {
+  const rot = cachedWaterRotations.find((r) => r.id === id);
+  if (!rot) return;
+
+  const historyCount = (rot.history || []).length;
+  const historyNote = historyCount > 0
+    ? ` This will also remove ${historyCount} history ${historyCount === 1 ? "entry" : "entries"}.`
+    : "";
+  const confirmed = await showConfirm(
+    "Delete Water Turn",
+    `Remove "${rot.name}"?${historyNote}`
+  );
+  if (!confirmed) return;
+
+  try {
+    await deleteWaterRotation(id);
+    logAudit("waterRotation", id, "delete", rot, null);
+    showToast("Water turn deleted", "success");
+    haptic("success");
+    await refreshUI();
+  } catch (err) {
+    showToast("Failed to delete water turn. Please try again.", "error");
+  }
+}
+
+// ── Water Rotation: Init Event Handlers ───────────────────────────────────
+function initWaterRotations() {
+  // Add button
+  const addBtn = document.querySelector("#addWaterRotationBtn");
+  if (addBtn) addBtn.addEventListener("click", () => openWaterRotationModal());
+
+  // Save button in modal
+  const saveBtn = document.querySelector("#saveWaterRotationBtn");
+  if (saveBtn) saveBtn.addEventListener("click", saveWaterRotation);
+
+  // Close modal buttons
+  document.querySelectorAll('[data-modal="waterRotationModal"]').forEach((btn) => {
+    btn.addEventListener("click", closeWaterRotationModal);
+  });
+
+  // Pattern chip selection
+  const chipContainer = document.querySelector("#waterPatternChips");
+  if (chipContainer) {
+    chipContainer.addEventListener("click", (e) => {
+      const chip = e.target.closest(".wm__pat");
+      if (!chip) return;
+
+      // Highlight selected chip
+      chipContainer.querySelectorAll(".wm__pat").forEach((c) =>
+        c.classList.remove("wm__pat--selected")
+      );
+      chip.classList.add("wm__pat--selected");
+
+      const cycle = chip.dataset.cycle;
+      const nameInput = document.querySelector("#waterRotationName");
+      const cycleInput = document.querySelector("#waterRotationCycleDays");
+      const cycleDaysField = document.querySelector("#waterCycleDaysField");
+
+      if (cycle === "custom") {
+        // Show cycle input, focus it
+        if (cycleDaysField) cycleDaysField.style.display = "";
+        cycleInput?.focus();
+      } else {
+        const days = parseInt(cycle, 10);
+        if (cycleInput) cycleInput.value = days;
+        // Auto-fill name if empty
+        const presetName = chip.dataset.name;
+        if (nameInput && !nameInput.value.trim() && presetName) {
+          nameInput.value = presetName;
+        }
+        if (cycleDaysField) cycleDaysField.style.display = "";
+      }
+      updateCyclePreview();
+    });
+  }
+
+  // Live preview when cycle days or date changes
+  const cycleInput = document.querySelector("#waterRotationCycleDays");
+  const dateInput = document.querySelector("#waterRotationNextDate");
+  if (cycleInput) cycleInput.addEventListener("input", () => { updateCyclePreview(); updateDatePreview(); });
+  if (dateInput) dateInput.addEventListener("change", () => { updateCyclePreview(); updateDatePreview(); syncDateChipSelection(); });
+
+  // Date quick-select chips
+  const dateChipContainer = document.querySelector("#waterDateChips");
+  if (dateChipContainer) {
+    dateChipContainer.addEventListener("click", (e) => {
+      const chip = e.target.closest(".wm__chip");
+      if (!chip) return;
+      const offset = parseInt(chip.dataset.dateOffset, 10);
+      if (isNaN(offset)) return;
+
+      const d = new Date();
+      d.setDate(d.getDate() + offset);
+      const dk = localDateKey(d);
+
+      setDatePickerValue(dk);
+
+      // Highlight selected chip
+      dateChipContainer.querySelectorAll(".wm__chip").forEach((c) =>
+        c.classList.remove("wm__chip--selected")
+      );
+      chip.classList.add("wm__chip--selected");
+
+      updateCyclePreview();
+      updateDatePreview();
+    });
+  }
+
+  // Time quick-select chips
+  const timeChipContainer = document.querySelector("#waterTimeChips");
+  if (timeChipContainer) {
+    timeChipContainer.addEventListener("click", (e) => {
+      const chip = e.target.closest(".wm__chip");
+      if (!chip) return;
+      const time = chip.dataset.time;
+      if (!time) return;
+
+      setTimePickerValue(time);
+
+      // Highlight selected chip
+      timeChipContainer.querySelectorAll(".wm__chip").forEach((c) =>
+        c.classList.remove("wm__chip--selected")
+      );
+      chip.classList.add("wm__chip--selected");
+    });
+  }
+
+  // Initialize custom pickers
+  initCustomDatePicker();
+  initCustomTimePicker();
+
+  // Postpone sheet
+  document.querySelectorAll('[data-action="close-postpone-sheet"]').forEach((btn) => {
+    btn.addEventListener("click", closePostponeSheet);
+  });
+  const savePostponeBtn = document.querySelector("#savePostponeBtn");
+  if (savePostponeBtn) savePostponeBtn.addEventListener("click", savePostpone);
+
+  // Postpone reason toggle for custom input
+  const reasonSelect = document.querySelector("#postponeReason");
+  if (reasonSelect) {
+    reasonSelect.addEventListener("change", () => {
+      const customField = document.querySelector("#postponeCustomReasonField");
+      if (customField) customField.style.display = reasonSelect.value === "Other" ? "" : "none";
+    });
+  }
+
+  // Water history sheet close
+  document.querySelectorAll('[data-action="close-water-history"]').forEach((btn) => {
+    btn.addEventListener("click", closeWaterHistory);
+  });
+
+  // Delegated click handler for water rotation cards
+  const listEl = document.querySelector("#waterRotationList");
+  if (listEl) {
+    listEl.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-action]");
+      if (!btn) return;
+
+      const action = btn.dataset.action;
+      const id = btn.dataset.waterId;
+
+      switch (action) {
+        case "complete-water":
+          await completeWaterRotation(id);
+          break;
+        case "postpone-water":
+          openPostponeSheet(id);
+          break;
+        case "water-history":
+          openWaterHistory(id);
+          break;
+        case "edit-water":
+          openWaterRotationModal(id);
+          break;
+        case "delete-water":
+          await deleteWaterRotationById(id);
+          break;
+        case "enable-water-notif":
+          await requestNotificationPermission();
+          await refreshUI();
+          break;
+      }
+    });
+  }
+
+  // Calendar view
+  initWaterCalendar();
+
+  // Start reminder loop
+  stopReminderLoop = startReminderLoop(
+    () => getActiveWaterRotations(),
+    (triggered) => {
+      // Show in-app toast when notifications fire
+      for (const rot of triggered) {
+        showToast(`🚰 ${rot.name} — Innikku thanneer murai!`, "info");
+      }
+    }
+  );
+
+  // Reset shown notifications at midnight
+  const now = new Date();
+  const msUntilMidnight =
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() -
+    now.getTime();
+  setTimeout(() => {
+    resetShownNotifications();
+    // Then reset every 24 hours
+    setInterval(resetShownNotifications, 24 * 60 * 60 * 1000);
+  }, msUntilMidnight);
+}
+
+// ── Water Rotation: Calendar View ─────────────────────────────────────────
+const ROTATION_COLORS = ["#3b82f6", "#f59e0b", "#10b981", "#ec4899", "#8b5cf6"];
+let waterCalMonth = null; // "YYYY-MM"
+let waterCalSelectedDate = null;
+
+function openWaterCalendar() {
+  const sheet = document.querySelector("#waterCalendarSheet");
+  if (!sheet) return;
+
+  waterCalMonth = currentMonthKey();
+  waterCalSelectedDate = localDateKey();
+
+  renderWaterCalendar();
+  sheet.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  requestAnimationFrame(() => sheet.classList.add("open"));
+}
+
+function closeWaterCalendar() {
+  const sheet = document.querySelector("#waterCalendarSheet");
+  if (!sheet) return;
+  sheet.classList.remove("open");
+  document.body.classList.remove("modal-open");
+  setTimeout(() => sheet.classList.add("hidden"), 300);
+}
+
+/**
+ * Project all future turn dates for each rotation within a date range.
+ * Also includes past completed/postponed dates from history.
+ */
+function projectRotationDates(rotations, startDate, endDate) {
+  /** Map<dateKey, Array<{ rotation, colorIdx, status }>> */
+  const dateMap = new Map();
+
+  const addEntry = (dk, rotation, colorIdx, status) => {
+    if (dk < startDate || dk > endDate) return;
+    if (!dateMap.has(dk)) dateMap.set(dk, []);
+    dateMap.get(dk).push({ rotation, colorIdx, status });
+  };
+
+  for (let ri = 0; ri < rotations.length; ri++) {
+    const rot = rotations[ri];
+    if (!rot.active || rot.deleted) continue;
+    const colorIdx = ri % ROTATION_COLORS.length;
+
+    // Project forward from nextDate
+    let d = rot.nextDate;
+    // Also project backward from nextDate to start of range
+    // (go back enough cycles to cover the range)
+    const maxBackCycles = Math.ceil(60 / (rot.cycleDays || 7));
+    let backDate = rot.nextDate;
+    for (let i = 0; i < maxBackCycles; i++) {
+      const prev = calculateNextDate(backDate, -(rot.cycleDays || 7));
+      if (prev < startDate) break;
+      backDate = prev;
+    }
+
+    // Forward from earliest projected date
+    let current = backDate;
+    let safety = 0;
+    while (current <= endDate && safety < 200) {
+      addEntry(current, rot, colorIdx, current < localDateKey() ? "past" : current === localDateKey() ? "today" : "upcoming");
+      current = calculateNextDate(current, rot.cycleDays || 7);
+      safety++;
+    }
+
+    // History entries (completed / postponed)
+    for (const entry of (rot.history || [])) {
+      if (entry.date >= startDate && entry.date <= endDate) {
+        // Override status with actual history status
+        const existing = dateMap.get(entry.date);
+        if (existing) {
+          const match = existing.find((e) => e.rotation.id === rot.id);
+          if (match) {
+            match.status = entry.status; // "completed" or "postponed"
+            continue;
+          }
+        }
+        addEntry(entry.date, rot, colorIdx, entry.status);
+      }
+    }
+  }
+
+  return dateMap;
+}
+
+function renderWaterCalendar() {
+  const grid = document.querySelector("#waterCalGrid");
+  const label = document.querySelector("#waterCalMonthLabel");
+  const legend = document.querySelector("#waterCalLegend");
+  const detail = document.querySelector("#waterCalDayDetail");
+  if (!grid || !label) return;
+
+  const [year, month] = waterCalMonth.split("-").map(Number);
+  const monthDate = new Date(year, month - 1, 1);
+  const monthName = monthDate.toLocaleDateString(appSettings.locale, { month: "long", year: "numeric" });
+  label.textContent = monthName;
+
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const firstDayOfWeek = new Date(year, month - 1, 1).getDay(); // 0=Sun
+  const today = localDateKey();
+
+  // Date range for this month
+  const startDate = `${waterCalMonth}-01`;
+  const endDate = `${waterCalMonth}-${String(daysInMonth).padStart(2, "0")}`;
+
+  // Get active rotations
+  const rotations = cachedWaterRotations.filter((r) => r.active && !r.deleted);
+  const dateMap = projectRotationDates(rotations, startDate, endDate);
+
+  // Day headers
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  let html = dayNames.map((d) => `<div class="water-cal__day-header">${d}</div>`).join("");
+
+  // Empty cells before first day
+  for (let i = 0; i < firstDayOfWeek; i++) {
+    html += '<div class="water-cal__cell water-cal__cell--empty"></div>';
+  }
+
+  // Day cells
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dk = `${waterCalMonth}-${String(day).padStart(2, "0")}`;
+    const isToday = dk === today;
+    const isPast = dk < today;
+    const isSelected = dk === waterCalSelectedDate;
+    const entries = dateMap.get(dk) || [];
+
+    let cellClass = "water-cal__cell";
+    if (isToday) cellClass += " water-cal__cell--today";
+    if (isPast && !isToday) cellClass += " water-cal__cell--past";
+    if (isSelected) cellClass += " water-cal__cell--selected";
+
+    const dots = entries.map((e) => {
+      let dotClass = `water-cal__dot water-cal__dot--${e.colorIdx}`;
+      if (e.status === "completed") dotClass += " water-cal__dot--completed";
+      return `<span class="${dotClass}"></span>`;
+    }).join("");
+
+    html += `
+      <div class="${cellClass}" data-cal-date="${dk}">
+        <span class="water-cal__day-num">${day}</span>
+        <div class="water-cal__dots">${dots}</div>
+      </div>`;
+  }
+
+  grid.innerHTML = html;
+
+  // Legend
+  if (legend) {
+    legend.innerHTML = rotations.map((rot, i) => {
+      const colorIdx = i % ROTATION_COLORS.length;
+      return `
+        <div class="water-cal__legend-item">
+          <span class="water-cal__legend-dot" style="background:${ROTATION_COLORS[colorIdx]}"></span>
+          ${escapeHtml(rot.name)}
+        </div>`;
+    }).join("") + `
+      <div class="water-cal__legend-item">
+        <span class="water-cal__legend-dot" style="background:transparent; border: 1.5px solid #94a3b8;"></span>
+        Completed
+      </div>`;
+  }
+
+  // Render detail for selected date
+  renderCalendarDayDetail(dateMap, rotations);
+
+  // Store dateMap & rotations on grid for delegated handler
+  grid._waterCalData = { dateMap, rotations };
+}
+
+function renderCalendarDayDetail(dateMap, rotations) {
+  const detail = document.querySelector("#waterCalDayDetail");
+  if (!detail || !waterCalSelectedDate) return;
+
+  const entries = dateMap.get(waterCalSelectedDate) || [];
+  const dateObj = new Date(waterCalSelectedDate + "T00:00:00");
+  const dateStr = dateObj.toLocaleDateString(appSettings.locale, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  if (!entries.length) {
+    detail.innerHTML = `
+      <div class="water-cal__detail-card">
+        <div class="water-cal__detail-date">${escapeHtml(dateStr)}</div>
+        <div class="water-cal__detail-empty">No water turns on this day</div>
+      </div>`;
+    return;
+  }
+
+  const items = entries.map((e) => {
+    const colorIdx = rotations.indexOf(e.rotation) % ROTATION_COLORS.length;
+    let statusLabel, statusClass;
+    switch (e.status) {
+      case "completed":
+        statusLabel = "✅ Done";
+        statusClass = "water-cal__detail-status--done";
+        break;
+      case "postponed":
+        statusLabel = "⏭️ Postponed";
+        statusClass = "water-cal__detail-status--postponed";
+        break;
+      case "today":
+        statusLabel = "💧 Today";
+        statusClass = "water-cal__detail-status--today";
+        break;
+      default:
+        statusLabel = "📅 Scheduled";
+        statusClass = "water-cal__detail-status--upcoming";
+    }
+
+    return `
+      <div class="water-cal__detail-item">
+        <span class="water-cal__detail-dot" style="background:${ROTATION_COLORS[colorIdx >= 0 ? colorIdx : 0]}"></span>
+        <span>${escapeHtml(e.rotation.name)}</span>
+        <span class="water-cal__detail-status ${statusClass}">${statusLabel}</span>
+      </div>`;
+  }).join("");
+
+  detail.innerHTML = `
+    <div class="water-cal__detail-card">
+      <div class="water-cal__detail-date">${escapeHtml(dateStr)}</div>
+      ${items}
+    </div>`;
+}
+
+function initWaterCalendar() {
+  // Open calendar button
+  const calBtn = document.querySelector("#waterCalendarBtn");
+  if (calBtn) calBtn.addEventListener("click", openWaterCalendar);
+
+  // Close calendar
+  document.querySelectorAll('[data-action="close-water-calendar"]').forEach((btn) => {
+    btn.addEventListener("click", closeWaterCalendar);
+  });
+
+  // Month navigation
+  const nav = document.querySelector("#waterCalNav");
+  if (nav) {
+    nav.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-cal-dir]");
+      if (!btn) return;
+      const [y, m] = waterCalMonth.split("-").map(Number);
+      const d = new Date(y, m - 1 + (btn.dataset.calDir === "next" ? 1 : -1), 1);
+      waterCalMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      renderWaterCalendar();
+    });
+  }
+
+  // Delegated click handler for calendar day cells (single listener, not per-cell)
+  const grid = document.querySelector("#waterCalGrid");
+  if (grid) {
+    grid.addEventListener("click", (e) => {
+      const cell = e.target.closest("[data-cal-date]");
+      if (!cell) return;
+
+      waterCalSelectedDate = cell.dataset.calDate;
+      // Update selection visual
+      grid.querySelectorAll(".water-cal__cell--selected").forEach((c) =>
+        c.classList.remove("water-cal__cell--selected")
+      );
+      cell.classList.add("water-cal__cell--selected");
+
+      // Use stored data from latest render
+      const calData = grid._waterCalData;
+      if (calData) {
+        renderCalendarDayDetail(calData.dateMap, calData.rotations);
+      }
+    });
+  }
 }
 
 // ── Recent Transactions (Dashboard) ─────────────────────────────────────────
@@ -2177,7 +3786,10 @@ function shiftHeatmapMonth(offset) {
 async function renderSpendingHeatmap() {
   const container = document.querySelector("#spendingHeatmap");
   if (!container) return;
-  const { renderDailyHeatmap } = await import("./chart-engine.js");
+  const [{ renderDailyHeatmap }, { getEventsForMonth }] = await Promise.all([
+    import("./chart-engine.js"),
+    import("./tn-calendar.js"),
+  ]);
 
   const month = getHeatmapMonthKey();
   const visible = getVisibleExpenses();
@@ -2201,7 +3813,8 @@ async function renderSpendingHeatmap() {
   const yearNum = Number(month.slice(0, 4));
   const monthNum = Number(month.slice(5, 7));
   const isCurrentMonth = month === currentMonthKey();
-  const heatmap = renderDailyHeatmap(dailyData, currentMonthLabel, formatMoney, yearNum, monthNum, isCurrentMonth);
+  const eventMap = getEventsForMonth(month);
+  const heatmap = renderDailyHeatmap(dailyData, currentMonthLabel, formatMoney, yearNum, monthNum, isCurrentMonth, eventMap);
 
   if (!heatmap) {
     container.innerHTML =
@@ -2229,7 +3842,7 @@ async function renderSpendingHeatmap() {
   }
 }
 
-function showHeatmapDayDetail(day, month, container) {
+async function showHeatmapDayDetail(day, month, container) {
   const detailEl = container.querySelector("#heatmapDayDetail");
   if (!detailEl) return;
 
@@ -2237,9 +3850,48 @@ function showHeatmapDayDetail(day, month, container) {
   const visible = getVisibleExpenses();
   const dayTxns = visible.filter((item) => String(item.dateKey) === dk);
 
+  // Load full Tamil calendar info for this day
+  const { getDayInfo } = await import("./tn-calendar.js");
+  const dayInfo = getDayInfo(dk);
+  const events = dayInfo.events;
+
   container.querySelectorAll(".heatmap__cell--selected").forEach((c) => c.classList.remove("heatmap__cell--selected"));
   const activeCell = container.querySelector(`[data-heatmap-day="${day}"]`);
   if (activeCell) activeCell.classList.add("heatmap__cell--selected");
+
+  // Panchang card — premium Tamil calendar info
+  let panchangCard = "";
+  if (dayInfo.tamilDate) {
+    const td = dayInfo.tamilDate;
+    const m = dayInfo.moon;
+    const th = dayInfo.thithi;
+    // Collect special badges
+    const badges = [];
+    if (m.isSpecial) badges.push(`<span class="panchang__badge panchang__badge--${m.phase}">${m.emoji} ${escapeHtml(m.nameTA)}</span>`);
+    if (th.isEkadashi) badges.push(`<span class="panchang__badge panchang__badge--ekadashi">🙏 ஏகாதசி</span>`);
+    if (th.isPradosham) badges.push(`<span class="panchang__badge panchang__badge--pradosham">🔱 பிரதோஷம்</span>`);
+    if (th.isChaturthi) badges.push(`<span class="panchang__badge panchang__badge--chaturthi">🐘 சதுர்த்தி</span>`);
+
+    panchangCard = `
+      <div class="panchang-card">
+        <div class="panchang__left">
+          <div class="panchang__moon-orb panchang__moon-orb--${m.phase}">${m.emoji}</div>
+        </div>
+        <div class="panchang__right">
+          <div class="panchang__month">${escapeHtml(td.month.name)} ${td.tamilDay}</div>
+          <div class="panchang__year">${escapeHtml(td.tamilYear)}</div>
+          <div class="panchang__thithi">${escapeHtml(th.pakshaTA)} · ${escapeHtml(th.name)}</div>
+          ${badges.length ? `<div class="panchang__badges">${badges.join("")}</div>` : ""}
+        </div>
+      </div>`;
+  }
+
+  // Festival/holiday banner for this day
+  const eventBanner = events.length
+    ? `<div class="heatmap__detail-events">${events.map((e) =>
+        `<span class="heatmap__detail-event heatmap__detail-event--${e.type || "festival"}">${e.emoji || "🎯"} ${escapeHtml(e.nameTA || e.name)}</span>`
+      ).join("")}</div>`
+    : "";
 
   if (!dayTxns.length) {
     const dayDate = new Date(dk + "T00:00:00");
@@ -2251,6 +3903,8 @@ function showHeatmapDayDetail(day, month, container) {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
+      ${panchangCard}
+      ${eventBanner}
       <p class="heatmap__detail-empty">No transactions on this day.</p>
     `;
     detailEl.hidden = false;
@@ -2294,6 +3948,8 @@ function showHeatmapDayDetail(day, month, container) {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
+    ${panchangCard}
+    ${eventBanner}
     <div class="heatmap__detail-summary">
       <span class="heatmap__detail-spent">Spent: <strong>${escapeHtml(formatMoney(totalDebit))}</strong></span>
       ${totalCredit > 0 ? `<span class="heatmap__detail-income">Income: <strong>${escapeHtml(formatMoney(totalCredit))}</strong></span>` : ""}
@@ -2873,14 +4529,14 @@ function startCloudListener(user) {
   const txQuery = query(collection(firestore, "users", user.uid, "transactions"), orderBy("occurredAt", "desc"));
   unsubList.push(
     onSnapshot(txQuery, { includeMetadataChanges: true }, reconcileSnapshot, (error) =>
-      console.error("Cloud transactions listener error:", error)
+      reportError(error, "cloud-transactions-listener")
     )
   );
 
   const expensesQuery = query(collection(firestore, "users", user.uid, "expenses"), orderBy("occurredAt", "desc"));
   unsubList.push(
     onSnapshot(expensesQuery, { includeMetadataChanges: true }, reconcileSnapshot, (error) =>
-      console.error("Cloud expenses listener error:", error)
+      reportError(error, "cloud-expenses-listener")
     )
   );
 
@@ -2905,7 +4561,7 @@ function startCloudListener(user) {
         }
         await refreshUI();
       },
-      (error) => console.error("Cloud accounts listener error:", error)
+      (error) => reportError(error, "cloud-accounts-listener")
     )
   );
 
@@ -3037,6 +4693,8 @@ function populateAccountDropdowns() {
 
 async function handleTransactionSubmit(event) {
   event.preventDefault();
+  const submitBtn = event.target?.querySelector('button[type="submit"]');
+  if (submitBtn) submitBtn.disabled = true;
   const txType = getSelectedTxType();
   const amount = Number(el.txAmount.value);
   const description = el.txDescription.value.trim();
@@ -3161,37 +4819,44 @@ async function handleTransactionSubmit(event) {
     lastSelectedAccountId = accountId;
   }
 
-  await putExpense(transaction);
-  logAudit("expense", transaction.id, "create", null, transaction);
-
-  // Handle recurring
-  if (repeat !== "none") {
-    const recurring = {
-      id: crypto.randomUUID(),
-      templateTransaction: { ...transaction, id: null },
-      frequency: repeat,
-      nextOccurrence: calculateNextOccurrence(dateKey, repeat),
-      active: true,
-      createdAt: now,
-    };
-    await putRecurring(recurring);
-    transaction.recurringId = recurring.id;
+  try {
     await putExpense(transaction);
+    logAudit("expense", transaction.id, "create", null, transaction);
+
+    // Handle recurring
+    if (repeat !== "none") {
+      const recurring = {
+        id: crypto.randomUUID(),
+        templateTransaction: { ...transaction, id: null },
+        frequency: repeat,
+        nextOccurrence: calculateNextOccurrence(dateKey, repeat),
+        active: true,
+        createdAt: now,
+      };
+      await putRecurring(recurring);
+      transaction.recurringId = recurring.id;
+      await putExpense(transaction);
+    }
+
+    // Reset form
+    el.txAmount.value = "";
+    el.txDescription.value = "";
+    if (el.txCategory) el.txCategory.value = "Other";
+    el.txDate.value = localDateKey();
+    if (el.txRepeat) el.txRepeat.value = "none";
+    showMessage(el.composerMessage, "");
+
+    await refreshUI();
+    haptic("success");
+    showSuccessAnimation(document.querySelector(".tx-form-card"));
+    showToast("Saved on this device.");
+    syncPendingRecords();
+  } catch (err) {
+    reportError(err, "handleTransactionSubmit");
+    showToast("Failed to save transaction. Please try again.", "error");
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
-
-  // Reset form
-  el.txAmount.value = "";
-  el.txDescription.value = "";
-  if (el.txCategory) el.txCategory.value = "Other";
-  el.txDate.value = localDateKey();
-  if (el.txRepeat) el.txRepeat.value = "none";
-  showMessage(el.composerMessage, "");
-
-  await refreshUI();
-  haptic("success");
-  showSuccessAnimation(document.querySelector(".tx-form-card"));
-  showToast("Saved on this device.");
-  syncPendingRecords();
 }
 
 // ── Quick Add ───────────────────────────────────────────────────────────────
@@ -3276,7 +4941,11 @@ function calculateNextOccurrence(fromDate, frequency) {
   return localDateKey(date);
 }
 
+let _processingRecurring = false;
 async function processRecurringTransactions() {
+  if (_processingRecurring) return;
+  _processingRecurring = true;
+  try {
   const active = await getActiveRecurring();
   const today = localDateKey();
   const now = new Date().toISOString();
@@ -3301,6 +4970,9 @@ async function processRecurringTransactions() {
     if (next !== rec.nextOccurrence) {
       await putRecurring({ ...rec, nextOccurrence: next });
     }
+  }
+  } finally {
+    _processingRecurring = false;
   }
 }
 
@@ -3410,6 +5082,7 @@ async function saveEditedTransaction() {
   const editCategory = modal.querySelector("#editTxCategory");
   const editDate = modal.querySelector("#editTxDate");
   const editMsg = modal.querySelector("#editTxMessage");
+  const saveBtn = document.querySelector("#saveEditTxBtn");
 
   const type = editType ? editType.value : normalizeType(existing.type);
   const amount = Number(editAmount.value);
@@ -3481,18 +5154,26 @@ async function saveEditedTransaction() {
     };
   }
 
-  await putExpense(updated);
-  logAudit("expense", updated.id, "update", existing, updated);
-  closeModal(modal);
-  await refreshUI();
-  if (activityViewAccountId) {
-    renderAccountActivity(activityViewAccountId);
-    const balance = getAccountBalance(activityViewAccountId);
-    el.accountActivityBalance.textContent = formatMoney(balance);
-    openModal(el.accountActivityModal);
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    await putExpense(updated);
+    logAudit("expense", updated.id, "update", existing, updated);
+    closeModal(modal);
+    await refreshUI();
+    if (activityViewAccountId) {
+      renderAccountActivity(activityViewAccountId);
+      const balance = getAccountBalance(activityViewAccountId);
+      el.accountActivityBalance.textContent = formatMoney(balance);
+      openModal(el.accountActivityModal);
+    }
+    syncPendingRecords();
+    showToast("Transaction updated.", "success");
+  } catch (err) {
+    showToast("Failed to save changes. Please try again.", "error");
+    reportError(err);
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
   }
-  syncPendingRecords();
-  showToast("Transaction updated.", "success");
 }
 
 async function deleteExpense(id) {
@@ -3501,17 +5182,22 @@ async function deleteExpense(id) {
   const confirmed = await showConfirm("Delete Transaction", `Delete "${existing.description || "this transaction"}"?`);
   if (!confirmed) return false;
 
-  await putExpense({
-    ...existing,
-    deleted: true,
-    updatedAt: new Date().toISOString(),
-    syncStatus: "pending",
-    lastSyncError: "",
-  });
-  logAudit("expense", id, "delete", existing, null);
-  await refreshUI();
-  syncPendingRecords();
-  return true;
+  try {
+    await putExpense({
+      ...existing,
+      deleted: true,
+      updatedAt: new Date().toISOString(),
+      syncStatus: "pending",
+      lastSyncError: "",
+    });
+    logAudit("expense", id, "delete", existing, null);
+    await refreshUI();
+    syncPendingRecords();
+    return true;
+  } catch (err) {
+    showToast("Failed to delete transaction. Please try again.", "error");
+    return false;
+  }
 }
 
 // ── Accounts Rendering ──────────────────────────────────────────────────────
@@ -3714,32 +5400,36 @@ async function saveAccount() {
     return;
   }
 
-  const now = new Date().toISOString();
-  const oldAccount = editingAccountId ? cachedAccounts.find((a) => a.id === editingAccountId) : null;
-  const account = {
-    id: editingAccountId || crypto.randomUUID(),
-    name,
-    type: el.accountTypeInput.value,
-    openingBalance: Number(el.accountOpeningBalance.value || 0),
-    openingDate: el.accountOpeningDate.value || localDateKey(),
-    alias: el.accountAlias.value.trim(),
-    archived: editingAccountId ? el.accountArchivedCheck.checked : false,
-    createdAt: oldAccount?.createdAt || now,
-    updatedAt: now,
-    syncStatus: "pending",
-    lastSyncError: "",
-  };
+  try {
+    const now = new Date().toISOString();
+    const oldAccount = editingAccountId ? cachedAccounts.find((a) => a.id === editingAccountId) : null;
+    const account = {
+      id: editingAccountId || crypto.randomUUID(),
+      name,
+      type: el.accountTypeInput.value,
+      openingBalance: Number(el.accountOpeningBalance.value || 0),
+      openingDate: el.accountOpeningDate.value || localDateKey(),
+      alias: el.accountAlias.value.trim(),
+      archived: editingAccountId ? el.accountArchivedCheck.checked : false,
+      createdAt: oldAccount?.createdAt || now,
+      updatedAt: now,
+      syncStatus: "pending",
+      lastSyncError: "",
+    };
 
-  await putAccount(account);
-  logAudit("account", account.id, editingAccountId ? "update" : "create", oldAccount, account);
-  closeModal(el.accountModal);
-  await refreshUI();
-  syncPendingRecords();
-  showToast(`Account "${name}" ${editingAccountId ? "updated" : "created"}.`, "success");
+    await putAccount(account);
+    logAudit("account", account.id, editingAccountId ? "update" : "create", oldAccount, account);
+    closeModal(el.accountModal);
+    await refreshUI();
+    syncPendingRecords();
+    showToast(`Account "${name}" ${editingAccountId ? "updated" : "created"}.`, "success");
 
-  // Close onboarding if active
-  if (el.onboardingOverlay && !el.onboardingOverlay.classList.contains("hidden")) {
-    showOnboardingStep(3);
+    // Close onboarding if active
+    if (el.onboardingOverlay && !el.onboardingOverlay.classList.contains("hidden")) {
+      showOnboardingStep(3);
+    }
+  } catch (err) {
+    showToast("Failed to save account. Please try again.", "error");
   }
 }
 
@@ -3787,58 +5477,62 @@ async function saveBalanceAdjustment() {
   const account = cachedAccounts.find((a) => a.id === accountId);
   if (!account) return;
 
-  let previousBalance;
-  if (editingAdjustmentId) {
-    const existing = await getExpense(editingAdjustmentId);
-    previousBalance = existing ? Number(existing.previousBalance || 0) : getAccountBalance(accountId);
-  } else {
-    previousBalance = getAccountBalance(accountId);
+  try {
+    let previousBalance;
+    if (editingAdjustmentId) {
+      const existing = await getExpense(editingAdjustmentId);
+      previousBalance = existing ? Number(existing.previousBalance || 0) : getAccountBalance(accountId);
+    } else {
+      previousBalance = getAccountBalance(accountId);
+    }
+
+    const balanceEffect = actualBalance - previousBalance;
+    if (balanceEffect === 0) {
+      showMessage(el.editBalanceMessage, "No adjustment needed.", true);
+      return;
+    }
+
+    const reason = el.editBalanceReason.value.trim();
+    const dateKey = el.editBalanceDate.value || localDateKey();
+    const now = new Date().toISOString();
+    let createdAt = now;
+    if (editingAdjustmentId) {
+      const existing = await getExpense(editingAdjustmentId);
+      createdAt = existing?.createdAt || now;
+    }
+
+    const adjustment = {
+      id: editingAdjustmentId || crypto.randomUUID(),
+      type: "adjustment",
+      adjustmentType: balanceEffect > 0 ? "positive" : "negative",
+      amount: Math.abs(balanceEffect),
+      accountId,
+      fromAccountId: null,
+      toAccountId: null,
+      previousBalance,
+      actualBalance,
+      balanceEffect,
+      description: "Balance correction",
+      reason,
+      category: "Adjustment",
+      dateKey,
+      occurredAt: `${dateKey}T00:00:00.000Z`,
+      createdAt,
+      updatedAt: now,
+      deleted: false,
+      syncStatus: "pending",
+      lastSyncError: "",
+    };
+
+    await putExpense(adjustment);
+    logAudit("expense", adjustment.id, editingAdjustmentId ? "update" : "create", null, adjustment);
+    closeModal(el.editBalanceModal);
+    await refreshUI();
+    syncPendingRecords();
+    showToast(`Balance adjusted for ${account.name}.`);
+  } catch (err) {
+    showToast("Failed to save balance adjustment. Please try again.", "error");
   }
-
-  const balanceEffect = actualBalance - previousBalance;
-  if (balanceEffect === 0) {
-    showMessage(el.editBalanceMessage, "No adjustment needed.", true);
-    return;
-  }
-
-  const reason = el.editBalanceReason.value.trim();
-  const dateKey = el.editBalanceDate.value || localDateKey();
-  const now = new Date().toISOString();
-  let createdAt = now;
-  if (editingAdjustmentId) {
-    const existing = await getExpense(editingAdjustmentId);
-    createdAt = existing?.createdAt || now;
-  }
-
-  const adjustment = {
-    id: editingAdjustmentId || crypto.randomUUID(),
-    type: "adjustment",
-    adjustmentType: balanceEffect > 0 ? "positive" : "negative",
-    amount: Math.abs(balanceEffect),
-    accountId,
-    fromAccountId: null,
-    toAccountId: null,
-    previousBalance,
-    actualBalance,
-    balanceEffect,
-    description: "Balance correction",
-    reason,
-    category: "Adjustment",
-    dateKey,
-    occurredAt: `${dateKey}T00:00:00.000Z`,
-    createdAt,
-    updatedAt: now,
-    deleted: false,
-    syncStatus: "pending",
-    lastSyncError: "",
-  };
-
-  await putExpense(adjustment);
-  logAudit("expense", adjustment.id, editingAdjustmentId ? "update" : "create", null, adjustment);
-  closeModal(el.editBalanceModal);
-  await refreshUI();
-  syncPendingRecords();
-  showToast(`Balance adjusted for ${account.name}.`);
 }
 
 // ── Edit Opening Balance ────────────────────────────────────────────────────
@@ -4134,47 +5828,56 @@ async function handleChatSend() {
     }
   }
 
-  const chatNextBtn = document.querySelector("#chatIncomeNextMonth");
-  const useNext = chatNextBtn && chatNextBtn.classList.contains("chat-income-pill--active");
-  if (useNext) {
-    transactions.filter((t) => t.type === "credit").forEach((t) => { t.forNextMonth = true; });
+  const sendBtn = document.querySelector("#chatSendBtn");
+  if (sendBtn) sendBtn.disabled = true;
+  try {
+    const chatNextBtn = document.querySelector("#chatIncomeNextMonth");
+    const useNext = chatNextBtn && chatNextBtn.classList.contains("chat-income-pill--active");
+    if (useNext) {
+      transactions.filter((t) => t.type === "credit").forEach((t) => { t.forNextMonth = true; });
+    }
+
+    // Save all transactions
+    for (const tx of transactions) {
+      await putExpense(tx);
+      logAudit("expense", tx.id, "create", null, tx);
+    }
+
+    chatInput.value = "";
+    chatInput.style.height = "auto";
+    chatForceType = null;
+    updateChatTypeIndicator();
+    hideChatPreview();
+
+    await refreshUI();
+    renderAccountActivity(accountId);
+
+    const balance = getAccountBalance(accountId);
+    el.accountActivityBalance.textContent = formatMoney(balance);
+
+    // Haptic feedback
+    if (navigator.vibrate) navigator.vibrate(10);
+
+    // Undo toast
+    const totalAmount = transactions.reduce((s, t) => s + t.amount, 0);
+    const msg =
+      transactions.length > 1
+        ? `${transactions.length} entries added • Total: ${formatMoney(totalAmount)}`
+        : `${transactions[0].type === "credit" ? "Credit" : "Debit"}: ${formatMoney(transactions[0].amount)}`;
+    showUndoToast(msg, transactions);
+
+    if (errors.length) {
+      setTimeout(() => showToast(`${errors.length} line(s) could not be parsed`), 500);
+    }
+
+    trackEvent("transaction_added", { count: transactions.length, totalAmount, method: "chat" });
+    syncPendingRecords();
+  } catch (error) {
+    reportError(error, "handleChatSend");
+    showToast("Failed to save. Please try again.", "error");
+  } finally {
+    if (sendBtn) sendBtn.disabled = false;
   }
-
-  // Save all transactions
-  for (const tx of transactions) {
-    await putExpense(tx);
-    logAudit("expense", tx.id, "create", null, tx);
-  }
-
-  chatInput.value = "";
-  chatInput.style.height = "auto";
-  chatForceType = null;
-  updateChatTypeIndicator();
-  hideChatPreview();
-
-  await refreshUI();
-  renderAccountActivity(accountId);
-
-  const balance = getAccountBalance(accountId);
-  el.accountActivityBalance.textContent = formatMoney(balance);
-
-  // Haptic feedback
-  if (navigator.vibrate) navigator.vibrate(10);
-
-  // Undo toast
-  const totalAmount = transactions.reduce((s, t) => s + t.amount, 0);
-  const msg =
-    transactions.length > 1
-      ? `${transactions.length} entries added • Total: ${formatMoney(totalAmount)}`
-      : `${transactions[0].type === "credit" ? "Credit" : "Debit"}: ${formatMoney(transactions[0].amount)}`;
-  showUndoToast(msg, transactions);
-
-  if (errors.length) {
-    setTimeout(() => showToast(`${errors.length} line(s) could not be parsed`), 500);
-  }
-
-  trackEvent("transaction_added", { count: transactions.length, totalAmount, method: "chat" });
-  syncPendingRecords();
 }
 
 function showUndoToast(message, transactions) {
@@ -4426,31 +6129,39 @@ async function saveBudget() {
     return;
   }
 
-  const existing = cachedBudgets.find((b) => b.category === category);
-  const budget = {
-    id: existing ? existing.id : crypto.randomUUID(),
-    category,
-    amount,
-    monthKey: "all",
-    createdAt: existing?.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+  try {
+    const existing = cachedBudgets.find((b) => b.category === category);
+    const budget = {
+      id: existing ? existing.id : crypto.randomUUID(),
+      category,
+      amount,
+      monthKey: "all",
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
 
-  await putBudget(budget);
-  logAudit("budget", budget.id, existing ? "update" : "create", existing, budget);
-  closeModal(el.budgetModal);
-  await refreshUI();
-  showToast(`Budget set: ${formatMoney(amount)}/month for ${category}.`);
+    await putBudget(budget);
+    logAudit("budget", budget.id, existing ? "update" : "create", existing, budget);
+    closeModal(el.budgetModal);
+    await refreshUI();
+    showToast(`Budget set: ${formatMoney(amount)}/month for ${category}.`);
+  } catch (err) {
+    showToast("Failed to save budget. Please try again.", "error");
+  }
 }
 
 async function handleDeleteBudget(budgetId) {
   const confirmed = await showConfirm("Remove Budget", "Remove this budget limit?");
   if (!confirmed) return;
-  const existing = cachedBudgets.find((b) => b.id === budgetId);
-  await deleteBudget(budgetId);
-  logAudit("budget", budgetId, "delete", existing, null);
-  await refreshUI();
-  showToast("Budget removed.");
+  try {
+    const existing = cachedBudgets.find((b) => b.id === budgetId);
+    await deleteBudget(budgetId);
+    logAudit("budget", budgetId, "delete", existing, null);
+    await refreshUI();
+    showToast("Budget removed.");
+  } catch (err) {
+    showToast("Failed to delete budget. Please try again.", "error");
+  }
 }
 
 // ── Export / Import ─────────────────────────────────────────────────────────
@@ -4781,7 +6492,7 @@ function showOnboardingStep(step) {
 
 function dismissOnboarding() {
   el.onboardingOverlay.classList.add("hidden");
-  putSetting("onboardingDone", true);
+  putSetting("onboardingDone", true).catch(() => {});
 }
 
 async function onboardingCreateAccount() {
@@ -5962,6 +7673,7 @@ async function initialize() {
   initChartTooltips();
   initInsightsSubtabs();
   initIncomeSheet();
+  initWaterRotations();
   await initDarkMode();
   await loadDefaultAccount();
   await loadUserName();
@@ -6023,6 +7735,6 @@ async function initialize() {
 }
 
 initialize().catch((error) => {
-  console.error(error);
-  showToast("Application startup failed. Check the console.", "error");
+  reportError(error, "initialization");
+  showToast("Application startup failed.", "error");
 });

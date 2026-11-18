@@ -18,6 +18,9 @@
       rel="stylesheet"
     />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="My Expenses" />
     <title>My Expenses</title>
   </head>
   <body>
@@ -45,7 +48,7 @@
     </div>
 
     <!-- ── Setup Banner ──────────────────────────────────────────────── -->
-    <div id="setupBanner" class="setup-banner hidden">
+    <div id="setupBanner" class="setup-banner hidden" role="alert">
       Firebase is not configured. Open <strong>src/firebase-config.js</strong>
       and paste your Firebase web-app configuration.
     </div>
@@ -56,7 +59,7 @@
       <div class="auth-card">
         <div class="auth-card__header">
           <div class="auth-logo-ring">
-            <img src="/icons/icon-192.png" alt="" class="app-logo" />
+            <img src="/icons/icon-192.png" alt="My Expenses" class="app-logo" />
           </div>
           <h1 class="auth-card__title">My Expenses</h1>
           <p class="auth-card__subtitle">Track smarter. Spend better. Offline-first.</p>
@@ -595,6 +598,21 @@
           </div>
         </div>
 
+        <!-- Special Day Banner (birthdays, festivals, etc.) -->
+        <div class="special-day-banner" id="specialDayBanner" hidden></div>
+
+        <!-- Birthday Wish Overlay (confetti + greeting) -->
+        <div class="birthday-wish-overlay" id="birthdayWishOverlay" hidden>
+          <div class="birthday-wish__card">
+            <div class="birthday-wish__confetti" id="birthdayConfetti"></div>
+            <div class="birthday-wish__emoji">🎂</div>
+            <h2 class="birthday-wish__title">Happy Birthday! 🎉</h2>
+            <p class="birthday-wish__message" id="birthdayWishMessage"></p>
+            <div class="birthday-wish__sparkles">✨🎈🎊🎁🎈✨</div>
+            <button type="button" class="birthday-wish__close" id="birthdayWishClose">Thank You! 🥳</button>
+          </div>
+        </div>
+
         <!-- Balance Hero Card -->
         <article class="balance-hero dash-enter dash-enter--1" id="balanceHero">
           <div class="hero-orb hero-orb--1"></div>
@@ -619,7 +637,7 @@
           <div class="balance-hero__footer balance-hero__footer--trio">
             <div class="balance-hero__metric balance-hero__metric--opening">
               <span class="balance-hero__metric-icon">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
               </span>
               <div class="balance-hero__metric-info">
                 <span class="balance-hero__metric-label">Opening</span>
@@ -629,7 +647,7 @@
             <div class="balance-hero__metric-divider"></div>
             <div class="balance-hero__metric balance-hero__metric--income">
               <span class="balance-hero__metric-icon">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+                <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
               </span>
               <div class="balance-hero__metric-info">
                 <span class="balance-hero__metric-label">Income</span>
@@ -639,7 +657,7 @@
             <div class="balance-hero__metric-divider"></div>
             <div class="balance-hero__metric balance-hero__metric--spent">
               <span class="balance-hero__metric-icon">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+                <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
               </span>
               <div class="balance-hero__metric-info">
                 <span class="balance-hero__metric-label">Spent</span>
@@ -661,14 +679,14 @@
         <!-- Accounts Summary Card -->
         <div class="dash-accounts-card dash-enter dash-enter--3" id="dashAccountsCard" data-action="view-accounts" role="button" tabindex="0" aria-label="View accounts">
           <span class="dash-accounts-card__icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
           </span>
           <div class="dash-accounts-card__info">
             <div class="dash-accounts-card__title" id="dashAccountsTitle">Accounts</div>
             <div class="dash-accounts-card__sub" id="dashAccountsSub">Loading...</div>
           </div>
           <span class="dash-accounts-card__chevron">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
           </span>
         </div>
 
@@ -676,34 +694,34 @@
         <div class="stats-grid dash-enter dash-enter--3">
           <div class="stats-grid__header" style="grid-column: 1 / -1">
             <span class="stats-grid__icon">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
             </span>
             <span class="stats-grid__title">Quick Stats</span>
           </div>
           <article class="stat-tile stat-tile--today">
             <div class="stat-tile__icon-wrap">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             </div>
             <span class="stat-tile__label">Today</span>
             <strong class="stat-tile__value" id="todayTotal">&#8377;0</strong>
           </article>
           <article class="stat-tile stat-tile--month">
             <div class="stat-tile__icon-wrap">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             </div>
             <span class="stat-tile__label">This Month</span>
             <strong class="stat-tile__value" id="monthTotal">&#8377;0</strong>
           </article>
           <article class="stat-tile stat-tile--avg">
             <div class="stat-tile__icon-wrap">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
             </div>
             <span class="stat-tile__label">Daily Avg</span>
             <strong class="stat-tile__value" id="dailyAvgCard">&#8377;0</strong>
           </article>
           <article class="stat-tile stat-tile--savings">
             <div class="stat-tile__icon-wrap">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
             </div>
             <span class="stat-tile__label">Savings</span>
             <strong class="stat-tile__value" id="savingsRate">0%</strong>
@@ -718,10 +736,10 @@
         <div class="dash-link-row dash-enter dash-enter--4">
           <button type="button" class="dash-link-btn" data-action="view-insights">
             <span class="dash-link-btn__icon-wrap">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+              <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
             </span>
             View category breakdown
-            <svg class="dash-link-btn__arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+            <svg aria-hidden="true" class="dash-link-btn__arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         </div>
 
@@ -729,7 +747,7 @@
         <details class="dash-section dash-enter dash-enter--4" aria-label="Budget overview" id="budgetSection">
           <summary class="dash-section__toggle">
             <span class="dash-section__toggle-left">
-              <svg class="dash-section__icon dash-section__icon--budget" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg>
+              <svg aria-hidden="true" class="dash-section__icon dash-section__icon--budget" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg>
               <span class="dash-section__toggle-text">
                 Budget vs Spent
                 <span class="dash-section__toggle-hint" id="budgetToggleHint"></span>
@@ -740,7 +758,7 @@
                 <span class="dash-section__mini-fill" id="budgetMiniFill"></span>
               </span>
               <span class="dash-section__chevron">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+                <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
               </span>
             </span>
           </summary>
@@ -758,14 +776,14 @@
         <details class="dash-section dash-enter dash-enter--4" aria-label="Recurring transactions" id="recurringSection">
           <summary class="dash-section__toggle">
             <span class="dash-section__toggle-left">
-              <svg class="dash-section__icon dash-section__icon--recurring" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              <svg aria-hidden="true" class="dash-section__icon dash-section__icon--recurring" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
               <span class="dash-section__toggle-text">
                 Recurring
                 <span class="dash-section__toggle-hint" id="recurringToggleHint"></span>
               </span>
             </span>
             <span class="dash-section__chevron">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
             </span>
           </summary>
           <div class="dash-section__body">
@@ -775,15 +793,40 @@
           </div>
         </details>
 
-        <!-- Recent Transactions Preview -->
-        <details class="dash-section dash-enter dash-enter--4" open aria-label="Recent transactions">
+        <!-- Water Rotation (Thanneer Murai) Section (collapsible) -->
+        <details class="dash-section dash-enter dash-enter--4" open aria-label="Water turn reminders" id="waterRotationSection">
           <summary class="dash-section__toggle">
             <span class="dash-section__toggle-left">
-              <svg class="dash-section__icon dash-section__icon--recent" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <svg aria-hidden="true" class="dash-section__icon dash-section__icon--water" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+              <span class="dash-section__toggle-text">
+                🚰 Thanneer Murai
+                <span class="dash-section__toggle-hint" id="waterRotationToggleHint"></span>
+              </span>
+            </span>
+            <span class="dash-section__chevron">
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </span>
+          </summary>
+          <div class="dash-section__body">
+            <div class="dash-section__header-row">
+              <button id="addWaterRotationBtn" type="button" class="small-btn primary-btn">+ Add Water Turn</button>
+              <button id="waterCalendarBtn" type="button" class="small-btn water-calendar-btn">📅 Calendar</button>
+            </div>
+            <div id="waterRotationList" class="water-rotation-list">
+              <p class="empty-state">No water turns set up yet.</p>
+            </div>
+          </div>
+        </details>
+
+        <!-- Recent Transactions Preview -->
+        <details class="dash-section dash-enter dash-enter--4" aria-label="Recent transactions">
+          <summary class="dash-section__toggle">
+            <span class="dash-section__toggle-left">
+              <svg aria-hidden="true" class="dash-section__icon dash-section__icon--recent" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
               Recent Transactions
             </span>
             <span class="dash-section__chevron">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
             </span>
           </summary>
           <div class="dash-section__body">
@@ -875,8 +918,8 @@
                 Upload Image
               </button>
             </div>
-            <input type="file" id="receiptCameraInput" accept="image/*" capture="environment" hidden />
-            <input type="file" id="receiptFileInput" accept="image/*" hidden />
+            <input type="file" id="receiptCameraInput" accept="image/*" capture="environment" hidden aria-label="Take receipt photo" />
+            <input type="file" id="receiptFileInput" accept="image/*" hidden aria-label="Choose receipt image" />
 
             <!-- Scanning Progress -->
             <div id="scanProgress" class="scan-progress hidden">
@@ -965,6 +1008,7 @@
                 class="quick-add__input"
                 placeholder="e.g. Lunch 150 UPI or Coffee 80 Cash"
                 autocomplete="off"
+                aria-label="Quick add transaction"
                 aria-describedby="quickAddHint"
               />
               <button
@@ -1073,7 +1117,7 @@
               <!-- Income Month Attribution (visible only for credit) -->
               <div id="txIncomeMonthGroup" class="income-month-picker hidden">
                 <div class="income-month-picker__label">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                   <span id="txMonthPickerLabel">Count for</span>
                 </div>
                 <div class="income-month-picker__pills">
@@ -1099,6 +1143,8 @@
                   placeholder="0"
                   inputmode="decimal"
                   class="tx-amount-input"
+                  aria-label="Amount"
+                  autocomplete="off"
                   required
                 />
                 <span class="tx-field-error" id="txAmountError"></span>
@@ -1456,7 +1502,7 @@
               </div>
             </div>
             <div class="insights-kpi-strip__card insights-kpi-strip__card--editable" id="incomeKpiCard" role="button" tabindex="0" aria-label="Add income">
-              <span class="insights-kpi-strip__label">Income <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></span>
+              <span class="insights-kpi-strip__label">Income <svg aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></span>
               <strong class="insights-kpi-strip__value insights-kpi-strip__value--success" id="kpiMonthIncome"
                 >--</strong
               >
@@ -1475,8 +1521,8 @@
           <!-- Sub-navigation Pill Tabs -->
           <nav class="insights-subtabs" role="tablist" aria-label="Insights sections">
             <div class="insights-subtab-indicator" aria-hidden="true"></div>
-            <button class="insights-subtab" role="tab" aria-selected="false" data-insights-tab="overview">
-              <svg
+            <button class="insights-subtab" role="tab" aria-selected="false" aria-controls="insightsPanel-overview" data-insights-tab="overview">
+              <svg aria-hidden="true"
                 width="14"
                 height="14"
                 viewBox="0 0 24 24"
@@ -1492,8 +1538,8 @@
               </svg>
               Overview
             </button>
-            <button class="insights-subtab" role="tab" aria-selected="false" data-insights-tab="daily">
-              <svg
+            <button class="insights-subtab" role="tab" aria-selected="false" aria-controls="insightsPanel-daily" data-insights-tab="daily">
+              <svg aria-hidden="true"
                 width="14"
                 height="14"
                 viewBox="0 0 24 24"
@@ -1510,8 +1556,8 @@
               </svg>
               Daily
             </button>
-            <button class="insights-subtab" role="tab" aria-selected="false" data-insights-tab="trends">
-              <svg
+            <button class="insights-subtab" role="tab" aria-selected="false" aria-controls="insightsPanel-trends" data-insights-tab="trends">
+              <svg aria-hidden="true"
                 width="14"
                 height="14"
                 viewBox="0 0 24 24"
@@ -1526,8 +1572,8 @@
               </svg>
               Trends
             </button>
-            <button class="insights-subtab active" role="tab" aria-selected="true" data-insights-tab="analysis">
-              <svg
+            <button class="insights-subtab active" role="tab" aria-selected="true" aria-controls="insightsPanel-analysis" data-insights-tab="analysis">
+              <svg aria-hidden="true"
                 width="14"
                 height="14"
                 viewBox="0 0 24 24"
@@ -1546,7 +1592,7 @@
           </nav>
 
           <!-- Tab: Overview -->
-          <div class="insights-tab-content" data-insights-panel="overview">
+          <div class="insights-tab-content" id="insightsPanel-overview" role="tabpanel" aria-labelledby="insightsTab-overview" data-insights-panel="overview">
             <!-- Smart Insights & Alerts -->
             <section class="insights-section" aria-label="Smart insights">
               <div class="section-heading">
@@ -1583,7 +1629,7 @@
           </div>
 
           <!-- Tab: Daily -->
-          <div class="insights-tab-content" data-insights-panel="daily">
+          <div class="insights-tab-content" id="insightsPanel-daily" role="tabpanel" aria-labelledby="insightsTab-daily" data-insights-panel="daily">
             <section class="insights-section insights-section--full" aria-label="Daily summary">
               <div class="section-heading">
                 <h2>Daily Summary</h2>
@@ -1611,7 +1657,7 @@
           </div>
 
           <!-- Tab: Trends -->
-          <div class="insights-tab-content" data-insights-panel="trends">
+          <div class="insights-tab-content" id="insightsPanel-trends" role="tabpanel" aria-labelledby="insightsTab-trends" data-insights-panel="trends">
             <!-- Quick Insight Summary -->
             <div id="kpiInsightSummary" class="kpi-summary"></div>
 
@@ -1738,7 +1784,7 @@
           </div>
 
           <!-- Tab: Analysis -->
-          <div class="insights-tab-content active" data-insights-panel="analysis">
+          <div class="insights-tab-content active" id="insightsPanel-analysis" role="tabpanel" aria-labelledby="insightsTab-analysis" data-insights-panel="analysis">
             <section class="insights-section" aria-label="Spending heatmap">
               <div class="section-heading">
                 <h2>Spending Heatmap</h2>
@@ -1898,13 +1944,13 @@
         <div class="bottom-sheet__header">
           <h3>💰 Add Income</h3>
           <button type="button" class="icon-btn" data-action="close-income-sheet" aria-label="Close">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
         <div class="bottom-sheet__body">
           <div class="income-sheet__amount-row">
             <span class="income-sheet__currency">₹</span>
-            <input id="incomeSheetAmount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0" class="income-sheet__input" />
+            <input id="incomeSheetAmount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0" class="income-sheet__input" aria-label="Income amount" autocomplete="off" />
           </div>
           <div class="form-field">
             <label for="incomeSheetDesc">Description</label>
@@ -1915,7 +1961,7 @@
             <select id="incomeSheetAccount" class="income-sheet__select"></select>
           </div>
           <button type="button" class="primary-btn income-sheet__save" id="incomeSheetSave">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             Add Income
           </button>
         </div>
@@ -2119,7 +2165,7 @@
     <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
     <!-- ── Add / Edit Account Modal ──────────────────────────────────── -->
-    <div id="accountModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div id="accountModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-label="Account">
       <div class="modal-card">
         <div class="modal-header">
           <h3 id="accountModalTitle">Add Account</h3>
@@ -2173,7 +2219,7 @@
     </div>
 
     <!-- ── Edit Balance Modal ─────────────────────────────────────────── -->
-    <div id="editBalanceModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div id="editBalanceModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-label="Adjust balance">
       <div class="modal-card">
         <div class="modal-header">
           <h3>Edit Balance</h3>
@@ -2210,7 +2256,7 @@
     </div>
 
     <!-- ── Edit Opening Balance Modal ────────────────────────────────── -->
-    <div id="editOpeningBalanceModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div id="editOpeningBalanceModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-label="Edit opening balance">
       <div class="modal-card">
         <div class="modal-header">
           <h3>Edit Opening Balance</h3>
@@ -2249,7 +2295,7 @@
     </div>
 
     <!-- ── Account Activity Chat Modal ────────────────────────────────── -->
-    <div id="accountActivityModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div id="accountActivityModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-label="Account activity">
       <div class="modal-card modal-card--chat">
         <!-- Chat Header -->
         <div class="chat-header">
@@ -2274,7 +2320,7 @@
             </div>
           </div>
           <div class="chat-header__actions">
-            <button id="chatSearchToggleBtn" class="icon-btn chat-action-btn" title="Search transactions">
+            <button id="chatSearchToggleBtn" class="icon-btn chat-action-btn" title="Search transactions" aria-label="Search transactions">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="18"
@@ -2288,7 +2334,7 @@
                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
             </button>
-            <button id="activityEditDetailsBtn" class="icon-btn chat-action-btn" title="Edit account">
+            <button id="activityEditDetailsBtn" class="icon-btn chat-action-btn" title="Edit account" aria-label="Edit account">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="18"
@@ -2302,7 +2348,7 @@
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
               </svg>
             </button>
-            <button id="activityEditBalanceBtn" class="icon-btn chat-action-btn" title="Adjust balance">
+            <button id="activityEditBalanceBtn" class="icon-btn chat-action-btn" title="Adjust balance" aria-label="Adjust balance">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="18"
@@ -2342,7 +2388,7 @@
         <div class="chat-search-bar hidden" id="chatSearchBar">
           <div class="chat-search__row">
             <button type="button" id="chatSearchCloseBtn" class="chat-search__back" aria-label="Close search">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>
+              <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>
             </button>
             <input
               id="chatSearchInput"
@@ -2350,6 +2396,7 @@
               class="chat-search-input"
               placeholder="Search..."
               autocomplete="off"
+              aria-label="Search transactions"
             />
           </div>
           <div class="chat-search__results hidden" id="chatSearchResults">
@@ -2357,10 +2404,10 @@
             <span class="chat-search__date" id="chatSearchDate"></span>
             <div class="chat-search__nav">
               <button type="button" id="chatSearchUp" class="chat-search__nav-btn" aria-label="Previous result">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="18 15 12 9 6 15"/></svg>
+                <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="18 15 12 9 6 15"/></svg>
               </button>
               <button type="button" id="chatSearchDown" class="chat-search__nav-btn" aria-label="Next result">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+                <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
               </button>
             </div>
           </div>
@@ -2428,6 +2475,7 @@
               class="chat-input"
               placeholder="e.g. Lunch 150 or Salary 50000 income&#10;Multi-line: one entry per line"
               autocomplete="off"
+              aria-label="Enter expense or income"
               rows="1"
             ></textarea>
             <button type="button" id="chatSendBtn" class="chat-send-btn" aria-label="Send">
@@ -2451,7 +2499,7 @@
     </div>
 
     <!-- ── Edit Transaction Modal ─────────────────────────────────────── -->
-    <div id="editTransactionModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div id="editTransactionModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-label="Edit transaction">
       <div class="modal-card">
         <div class="modal-header">
           <h3>Edit Transaction</h3>
@@ -2582,6 +2630,249 @@
       </div>
     </div>
 
+    <!-- ── Water Rotation Add/Edit Modal ────────────────────────────── -->
+    <div id="waterRotationModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-label="Water turn rotation">
+      <div class="modal-card wm">
+        <!-- Header -->
+        <div class="wm__header">
+          <div class="wm__header-left">
+            <span class="wm__header-icon">🚰</span>
+            <div>
+              <h3 id="waterRotationModalTitle" class="wm__title">Add Water Turn</h3>
+              <span id="waterCyclePreview" class="wm__preview"></span>
+            </div>
+          </div>
+          <button class="modal-close-btn icon-btn" data-modal="waterRotationModal" aria-label="Close">&#10005;</button>
+        </div>
+
+        <div class="modal-body wm__body">
+          <!-- Section 1: Name + Pattern -->
+          <div class="wm__section">
+            <label class="wm__label" for="waterRotationName">Name</label>
+            <input id="waterRotationName" class="wm__input" type="text" placeholder="e.g. Regular Thanneer Murai" />
+            <span class="field-error" id="waterRotationNameError"></span>
+
+            <div class="wm__patterns" id="waterPatternChips">
+              <button type="button" class="wm__pat" data-cycle="6" data-name="Regular Thanneer Murai">
+                <span class="wm__pat-icon">💧</span>
+                <span class="wm__pat-body">
+                  <strong>Regular · 6 days</strong>
+                  <small>Oru naal munnadiye varum</small>
+                </span>
+              </button>
+              <button type="button" class="wm__pat" data-cycle="8" data-name="Kinaththu Service Thanneer Murai">
+                <span class="wm__pat-icon">🔧</span>
+                <span class="wm__pat-body">
+                  <strong>Service · 8 days</strong>
+                  <small>Oru naal thalli pogum</small>
+                </span>
+              </button>
+              <button type="button" class="wm__pat wm__pat--custom" data-cycle="custom">
+                <span class="wm__pat-icon">⚙️</span>
+                <span class="wm__pat-body"><strong>Custom</strong></span>
+              </button>
+            </div>
+
+            <div id="waterCycleDaysField" class="wm__cycle-row">
+              <label class="wm__label" for="waterRotationCycleDays">Cycle Days</label>
+              <input id="waterRotationCycleDays" class="wm__input wm__input--short" type="number" min="1" max="30" value="6" inputmode="numeric" />
+              <span class="field-hint">6 = early · 7 = same day · 8 = late each week</span>
+            </div>
+          </div>
+
+          <!-- Section 2: Date -->
+          <div class="wm__section">
+            <label class="wm__label">Next Turn Date</label>
+            <div class="wm__chips" id="waterDateChips">
+              <button type="button" class="wm__chip" data-date-offset="0">🌙 Innikku</button>
+              <button type="button" class="wm__chip" data-date-offset="1">📅 Naalaikku</button>
+              <button type="button" class="wm__chip" data-date-offset="2">+2</button>
+              <button type="button" class="wm__chip" data-date-offset="3">+3</button>
+              <button type="button" class="wm__chip" data-date-offset="6">+6</button>
+              <button type="button" class="wm__chip" data-date-offset="7">+7</button>
+            </div>
+            <input id="waterRotationNextDate" type="hidden" />
+            <div class="cdp" id="customDatePicker">
+              <button type="button" class="cdp__display" id="datePickerDisplay">
+                <span class="cdp__display-icon">
+                  <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                </span>
+                <span class="cdp__display-body">
+                  <span class="cdp__display-date" id="datePickerDisplayText">Select date</span>
+                  <span class="cdp__display-sub" id="datePickerDisplaySub"></span>
+                </span>
+                <svg aria-hidden="true" class="cdp__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="cdp__dropdown" id="datePickerDropdown" hidden>
+                <div class="cdp__nav">
+                  <button type="button" class="cdp__nav-btn" id="datePickerPrev" aria-label="Previous month">
+                    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                  </button>
+                  <div class="cdp__month-block">
+                    <span class="cdp__month-label" id="datePickerMonthLabel"></span>
+                    <span class="cdp__tamil-label" id="datePickerTamilLabel"></span>
+                  </div>
+                  <button type="button" class="cdp__nav-btn" id="datePickerNext" aria-label="Next month">
+                    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                  </button>
+                </div>
+                <div class="cdp__weekdays"></div>
+                <div class="cdp__days" id="datePickerDays"></div>
+                <div class="cdp__footer">
+                  <button type="button" class="cdp__footer-btn" id="datePickerToday">Today</button>
+                </div>
+              </div>
+            </div>
+            <span class="wm__date-hint" id="waterDatePreview"></span>
+            <span class="field-error" id="waterRotationNextDateError"></span>
+          </div>
+
+          <!-- Section 3: Time -->
+          <div class="wm__section">
+            <label class="wm__label">Reminder Time</label>
+            <div class="wm__chips" id="waterTimeChips">
+              <button type="button" class="wm__chip" data-time="17:00">5 PM</button>
+              <button type="button" class="wm__chip wm__chip--selected" data-time="17:30">5:30</button>
+              <button type="button" class="wm__chip" data-time="17:45">5:45</button>
+              <button type="button" class="wm__chip" data-time="18:00">6 PM</button>
+              <button type="button" class="wm__chip" data-time="18:30">6:30</button>
+              <button type="button" class="wm__chip" data-time="19:00">7 PM</button>
+            </div>
+            <input id="waterRotationReminderTime" type="hidden" value="17:30" />
+            <div class="ctp" id="customTimePicker">
+              <button type="button" class="ctp__display" id="timePickerDisplay">
+                <span class="ctp__display-icon">
+                  <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </span>
+                <span class="ctp__display-body">
+                  <span class="ctp__display-time" id="timePickerDisplayText">5:30 PM</span>
+                  <span class="ctp__display-hint">Tap to change</span>
+                </span>
+                <svg aria-hidden="true" class="ctp__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="ctp__dropdown" id="timePickerDropdown" hidden>
+                <div class="ctp__drum">
+                  <div class="ctp__drum-col" id="timePickerHours"></div>
+                  <div class="ctp__drum-sep">:</div>
+                  <div class="ctp__drum-col" id="timePickerMinutes"></div>
+                  <div class="ctp__drum-col ctp__drum-col--ampm" id="timePickerAmPm"></div>
+                </div>
+                <div class="ctp__drum-window"></div>
+                <div class="ctp__drum-fade ctp__drum-fade--top"></div>
+                <div class="ctp__drum-fade ctp__drum-fade--bottom"></div>
+                <button type="button" class="ctp__done-btn" id="timePickerDone">
+                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  Set Time
+                </button>
+              </div>
+            </div>
+            <span class="field-hint" style="opacity:0.6">Evening ku reminder varum 🔔</span>
+          </div>
+
+          <p id="waterRotationModalMessage" class="message"></p>
+        </div>
+
+        <!-- Footer -->
+        <div class="wm__footer">
+          <button id="saveWaterRotationBtn" class="wm__save-btn">
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            Save
+          </button>
+          <button class="wm__cancel-btn modal-close-btn" data-modal="waterRotationModal">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Water Rotation Postpone Sheet ─────────────────────────────── -->
+    <div id="waterPostponeSheet" class="bottom-sheet hidden" role="dialog" aria-modal="true" aria-label="Postpone water turn">
+      <div class="bottom-sheet__backdrop" data-action="close-postpone-sheet"></div>
+      <div class="bottom-sheet__content water-postpone-sheet">
+        <div class="bottom-sheet__handle" aria-hidden="true"></div>
+        <div class="bottom-sheet__header">
+          <h3>⏭️ Postpone Water Turn</h3>
+          <button type="button" class="icon-btn" data-action="close-postpone-sheet" aria-label="Close">
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="bottom-sheet__body">
+          <p class="water-postpone-sheet__current" id="postponeCurrentInfo"></p>
+          <div class="form-field">
+            <label for="postponeReason">Reason</label>
+            <select id="postponeReason" class="water-postpone-sheet__select">
+              <option value="Shutdown">Shutdown (மின் தடை)</option>
+              <option value="Motor Repair">Motor Repair (மோட்டார் பழுது)</option>
+              <option value="Pipeline Work">Pipeline Work (குழாய் வேலை)</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="form-field" id="postponeCustomReasonField" style="display:none">
+            <label for="postponeCustomReason">Custom Reason</label>
+            <input id="postponeCustomReason" type="text" placeholder="Enter reason..." />
+          </div>
+          <div class="form-field">
+            <label for="postponeNewDate">New Date <span class="required">*</span></label>
+            <input id="postponeNewDate" type="date" />
+            <span class="field-error" id="postponeNewDateError"></span>
+          </div>
+          <button type="button" class="primary-btn water-postpone-sheet__save" id="savePostponeBtn">
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            Postpone Turn
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Water Rotation History Sheet ──────────────────────────────── -->
+    <div id="waterHistorySheet" class="bottom-sheet hidden" role="dialog" aria-modal="true" aria-label="Water turn history">
+      <div class="bottom-sheet__backdrop" data-action="close-water-history"></div>
+      <div class="bottom-sheet__content water-history-sheet">
+        <div class="bottom-sheet__handle" aria-hidden="true"></div>
+        <div class="bottom-sheet__header">
+          <h3 id="waterHistoryTitle">📜 Turn History</h3>
+          <button type="button" class="icon-btn" data-action="close-water-history" aria-label="Close">
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="bottom-sheet__body">
+          <div id="waterHistoryList" class="water-history-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Water Rotation Calendar Sheet ─────────────────────────────── -->
+    <div id="waterCalendarSheet" class="bottom-sheet hidden" role="dialog" aria-modal="true" aria-label="Water turn calendar">
+      <div class="bottom-sheet__backdrop" data-action="close-water-calendar"></div>
+      <div class="bottom-sheet__content water-calendar-sheet">
+        <div class="bottom-sheet__handle" aria-hidden="true"></div>
+        <div class="bottom-sheet__header">
+          <h3>📅 Thanneer Murai Calendar</h3>
+          <button type="button" class="icon-btn" data-action="close-water-calendar" aria-label="Close">
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="bottom-sheet__body">
+          <div class="water-cal__nav" id="waterCalNav">
+            <button type="button" class="water-cal__nav-btn" data-cal-dir="prev" aria-label="Previous month">
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <span class="water-cal__month-label" id="waterCalMonthLabel"></span>
+            <button type="button" class="water-cal__nav-btn" data-cal-dir="next" aria-label="Next month">
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </div>
+          <div class="water-cal__grid" id="waterCalGrid"></div>
+          <div class="water-cal__legend" id="waterCalLegend"></div>
+          <div class="water-cal__day-detail" id="waterCalDayDetail"></div>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.js"></script>
+    <noscript>
+      <div style="text-align:center;padding:3rem 1rem;font-family:system-ui">
+        <h2>JavaScript Required</h2>
+        <p>Please enable JavaScript to use My Expenses.</p>
+      </div>
+    </noscript>
   </body>
 </html>

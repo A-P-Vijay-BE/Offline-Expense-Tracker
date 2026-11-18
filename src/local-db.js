@@ -1,12 +1,13 @@
 import { openDB } from "idb";
 
 const DATABASE_NAME = "my-expense-tracker";
-const DATABASE_VERSION = 6;
+const DATABASE_VERSION = 7;
 const STORE_NAME = "expenses";
 const ACCOUNTS_STORE = "accounts";
 const BUDGETS_STORE = "budgets";
 const RECURRING_STORE = "recurring";
 const SETTINGS_STORE = "settings";
+const WATER_ROTATIONS_STORE = "waterRotations";
 
 export const dbPromise = openDB(DATABASE_NAME, DATABASE_VERSION, {
   upgrade(db, oldVersion, _newVersion, transaction) {
@@ -70,6 +71,15 @@ export const dbPromise = openDB(DATABASE_NAME, DATABASE_VERSION, {
         auditStore.createIndex("by-timestamp", "timestamp");
       }
     }
+    if (oldVersion < 7) {
+      if (!db.objectStoreNames.contains(WATER_ROTATIONS_STORE)) {
+        const waterStore = db.createObjectStore(WATER_ROTATIONS_STORE, {
+          keyPath: "id",
+        });
+        waterStore.createIndex("by-active", "active");
+        waterStore.createIndex("by-next", "nextDate");
+      }
+    }
   },
 });
 
@@ -93,31 +103,30 @@ export async function getAllExpenses() {
 
 export async function getPendingExpenses() {
   const db = await dbPromise;
-  const all = await db.getAll(STORE_NAME);
-  return all.filter(
-    (item) => item.syncStatus === "pending" || item.syncStatus === "error",
-  );
+  const pending = await db.getAllFromIndex(STORE_NAME, "by-sync", "pending");
+  const errored = await db.getAllFromIndex(STORE_NAME, "by-sync", "error");
+  return [...pending, ...errored];
 }
 
 export async function markExpenseSynced(id) {
-  const db = await dbPromise;
-  const item = await db.get(STORE_NAME, id);
+  const tx = (await dbPromise).transaction(STORE_NAME, "readwrite");
+  const item = await tx.store.get(id);
   if (!item) return;
-
   item.syncStatus = "synced";
   item.lastSyncError = "";
   item.syncedAt = new Date().toISOString();
-  await db.put(STORE_NAME, item);
+  await tx.store.put(item);
+  await tx.done;
 }
 
 export async function markExpenseSyncError(id, message) {
-  const db = await dbPromise;
-  const item = await db.get(STORE_NAME, id);
+  const tx = (await dbPromise).transaction(STORE_NAME, "readwrite");
+  const item = await tx.store.get(id);
   if (!item) return;
-
   item.syncStatus = "error";
   item.lastSyncError = String(message || "Unknown sync error");
-  await db.put(STORE_NAME, item);
+  await tx.store.put(item);
+  await tx.done;
 }
 
 export async function bulkPutExpenses(expenses) {
@@ -151,29 +160,30 @@ export async function getAllAccounts() {
 
 export async function getPendingAccounts() {
   const db = await dbPromise;
-  const all = await db.getAll(ACCOUNTS_STORE);
-  return all.filter(
-    (item) => item.syncStatus === "pending" || item.syncStatus === "error",
-  );
+  const pending = await db.getAllFromIndex(ACCOUNTS_STORE, "by-sync", "pending");
+  const errored = await db.getAllFromIndex(ACCOUNTS_STORE, "by-sync", "error");
+  return [...pending, ...errored];
 }
 
 export async function markAccountSynced(id) {
-  const db = await dbPromise;
-  const item = await db.get(ACCOUNTS_STORE, id);
+  const tx = (await dbPromise).transaction(ACCOUNTS_STORE, "readwrite");
+  const item = await tx.store.get(id);
   if (!item) return;
   item.syncStatus = "synced";
   item.lastSyncError = "";
   item.syncedAt = new Date().toISOString();
-  await db.put(ACCOUNTS_STORE, item);
+  await tx.store.put(item);
+  await tx.done;
 }
 
 export async function markAccountSyncError(id, message) {
-  const db = await dbPromise;
-  const item = await db.get(ACCOUNTS_STORE, id);
+  const tx = (await dbPromise).transaction(ACCOUNTS_STORE, "readwrite");
+  const item = await tx.store.get(id);
   if (!item) return;
   item.syncStatus = "error";
   item.lastSyncError = String(message || "Unknown sync error");
-  await db.put(ACCOUNTS_STORE, item);
+  await tx.store.put(item);
+  await tx.done;
 }
 
 // ── Budgets ─────────────────────────────────────────────────────────
@@ -225,6 +235,35 @@ export async function deleteRecurring(id) {
 export async function getActiveRecurring() {
   const db = await dbPromise;
   const all = await db.getAll(RECURRING_STORE);
+  return all.filter((item) => item.active);
+}
+
+// ── Water Rotations (Thanneer Murai) ──────────────────────────────
+
+export async function putWaterRotation(rotation) {
+  const db = await dbPromise;
+  await db.put(WATER_ROTATIONS_STORE, rotation);
+  return rotation;
+}
+
+export async function getWaterRotation(id) {
+  const db = await dbPromise;
+  return db.get(WATER_ROTATIONS_STORE, id);
+}
+
+export async function getAllWaterRotations() {
+  const db = await dbPromise;
+  return db.getAll(WATER_ROTATIONS_STORE);
+}
+
+export async function deleteWaterRotation(id) {
+  const db = await dbPromise;
+  await db.delete(WATER_ROTATIONS_STORE, id);
+}
+
+export async function getActiveWaterRotations() {
+  const db = await dbPromise;
+  const all = await db.getAll(WATER_ROTATIONS_STORE);
   return all.filter((item) => item.active);
 }
 

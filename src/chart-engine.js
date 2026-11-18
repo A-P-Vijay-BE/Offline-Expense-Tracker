@@ -1,3 +1,5 @@
+import { getTamilDateShort, getMoonPhase, getTamilMonthsForGregorianMonth } from "./tn-calendar.js";
+
 const CHART_COLORS = [
   "#128c7e",
   "#25d366",
@@ -20,6 +22,12 @@ function esc(value) {
     .replaceAll("'", "&#039;");
 }
 
+function ordinal(n) {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return s[(v - 20) % 10] || s[v] || s[0];
+}
+
 function polarToCartesian(cx, cy, r, angleDeg) {
   const rad = ((angleDeg - 90) * Math.PI) / 180;
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
@@ -27,8 +35,10 @@ function polarToCartesian(cx, cy, r, angleDeg) {
 
 export function renderDonutChart(categories, formatAmount) {
   if (!categories.length) return "";
+  // Sanitize amounts to prevent NaN propagation
+  categories = categories.map((c) => ({ ...c, amount: Number(c.amount) || 0 }));
   const total = categories.reduce((s, c) => s + c.amount, 0);
-  if (total === 0) return "";
+  if (!total || !isFinite(total)) return "";
 
   const cx = 80,
     cy = 80,
@@ -103,11 +113,14 @@ export function renderLineChart(dataPoints, formatAmount) {
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
 
-  const maxVal = Math.max(...dataPoints.map((d) => d.value));
+  // Sanitize values to prevent NaN in SVG coordinates
+  const sanitized = dataPoints.map((d) => ({ ...d, value: Number(d.value) || 0 }));
+  const maxVal = Math.max(...sanitized.map((d) => d.value));
+  if (!isFinite(maxVal)) return "";
   const range = maxVal || 1;
 
-  const points = dataPoints.map((d, i) => {
-    const x = padding.left + (i / (dataPoints.length - 1)) * chartW;
+  const points = sanitized.map((d, i) => {
+    const x = padding.left + (i / (sanitized.length - 1)) * chartW;
     const y = padding.top + chartH - (d.value / range) * chartH;
     return { x, y, ...d };
   });
@@ -154,9 +167,11 @@ export function renderLineChart(dataPoints, formatAmount) {
 
 export function renderIncomeExpenseBar(months, formatAmount) {
   if (!months.length) return "";
+  // Sanitize to prevent NaN in bar heights
+  months = months.map((m) => ({ ...m, income: Number(m.income) || 0, expense: Number(m.expense) || 0 }));
 
   const maxVal = Math.max(...months.flatMap((m) => [m.income, m.expense]));
-  if (maxVal === 0) return "";
+  if (!maxVal || !isFinite(maxVal)) return "";
 
   const bars = months
     .slice(-6)
@@ -191,62 +206,163 @@ export function renderIncomeExpenseBar(months, formatAmount) {
   `;
 }
 
-export function renderDailyHeatmap(dailyData, currentMonth, formatAmount, year, month, isCurrentMonth) {
+/**
+ * @param {Array} dailyData — [{day, amount}]
+ * @param {string} currentMonth — display label
+ * @param {Function} formatAmount
+ * @param {number} year
+ * @param {number} month
+ * @param {boolean} isCurrentMonth
+ * @param {Map<string, Array>} [eventMap] — dateKey → [{name, nameTA, type, emoji}]
+ */
+export function renderDailyHeatmap(dailyData, currentMonth, formatAmount, year, month, isCurrentMonth, eventMap) {
   if (!dailyData.length) return "";
 
-  const maxVal = Math.max(...dailyData.map((d) => d.amount));
+  const maxVal = Math.max(...dailyData.map((d) => Number(d.amount) || 0));
+  const monthKey = `${year}-${String(month).padStart(2, "0")}`;
+
+  // Tamil month subtitle — shows both months if Gregorian month spans two
+  const tamilMonths = getTamilMonthsForGregorianMonth(year, month);
+  const tamilLine = tamilMonths.label
+    ? `<div class="heatmap__tamil-subtitle">${tamilMonths.label} · ${tamilMonths.year}</div>`
+    : "";
 
   const titleBar = `
-    <div class="heatmap__nav">
-      <button class="heatmap__nav-btn" id="heatmapPrevMonth" aria-label="Previous month">&#8249;</button>
-      <div class="heatmap__title">Daily Spending — ${esc(currentMonth)}</div>
-      <button class="heatmap__nav-btn" id="heatmapNextMonth" aria-label="Next month" ${isCurrentMonth ? "disabled" : ""}>&#8250;</button>
+    <div class="heatmap__header">
+      <button class="heatmap__nav-btn" id="heatmapPrevMonth" aria-label="Previous month">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div class="heatmap__title-block">
+        <div class="heatmap__title">${esc(currentMonth)}</div>
+        ${tamilLine}
+      </div>
+      <button class="heatmap__nav-btn" id="heatmapNextMonth" aria-label="Next month" ${isCurrentMonth ? "disabled" : ""}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
     </div>
   `;
 
-  if (maxVal === 0) {
-    return `
-      <div class="daily-heatmap">
-        ${titleBar}
-        <p class="heatmap__empty">No spending recorded this month yet.</p>
-      </div>
-    `;
+  if (maxVal === 0 && (!eventMap || eventMap.size === 0)) {
+    return `<div class="daily-heatmap">${titleBar}<p class="heatmap__empty">No spending recorded this month yet.</p></div>`;
   }
 
-  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const headers = weekdays.map((d) => `<div class="heatmap__weekday-header">${d}</div>`).join("");
+  const weekdays = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+  const headers = weekdays.map((d) => `<div class="heatmap__wday">${d}</div>`).join("");
 
-  const firstDayOfMonth = new Date(year, month - 1, 1).getDay();
-  const startOffset = firstDayOfMonth;
+  const startOffset = new Date(year, month - 1, 1).getDay();
+  const blanks = Array(startOffset).fill('<div class="heatmap__cell heatmap__cell--blank"></div>').join("");
 
-  const emptyCells = Array(startOffset).fill('<div class="heatmap__cell heatmap__cell--empty"></div>').join("");
+  const safeMax = maxVal || 1;
+  const today = new Date();
+  const todayDk = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
+  // Build cells + collect moon phase days for legend
+  const moonDays = [];
   const cells = dailyData
     .map((d) => {
-      const intensity = d.amount / maxVal;
+      const intensity = maxVal > 0 ? d.amount / safeMax : 0;
       let level = 0;
       if (intensity > 0) level = 1;
       if (intensity > 0.25) level = 2;
       if (intensity > 0.5) level = 3;
       if (intensity > 0.75) level = 4;
-      const tooltip = `Day ${d.day}: ${esc(formatAmount(d.amount))}`;
-      return `<div class="heatmap__cell heatmap__cell--${level} heatmap__cell--clickable" data-heatmap-day="${d.day}" title="${tooltip}" aria-label="${tooltip}" role="button" tabindex="0"><span class="heatmap__day">${d.day}</span></div>`;
+
+      const dk = `${monthKey}-${String(d.day).padStart(2, "0")}`;
+      const tamilShort = getTamilDateShort(dk);
+      const moon = getMoonPhase(dk);
+      const isToday = dk === todayDk;
+
+      // Collect special moon days for legend
+      if (moon.isSpecial) moonDays.push({ day: d.day, moon, isPast: dk < todayDk });
+
+      // Build cell classes
+      let cls = `heatmap__cell heatmap__cell--L${level} heatmap__cell--click`;
+      if (isToday) cls += " heatmap__cell--today";
+      if (moon.phase === "new") cls += " heatmap__cell--amavasai";
+      else if (moon.phase === "full") cls += " heatmap__cell--pournami";
+
+      // Festival marker (sanitize type for safe CSS class injection)
+      const events = eventMap ? eventMap.get(dk) : null;
+      let festDot = "";
+      if (events && events.length) {
+        const t = (events[0].type || "festival").replace(/[^a-z-]/gi, "");
+        cls += ` heatmap__cell--fest heatmap__cell--fest-${t}`;
+        festDot = `<i class="heatmap__fdot heatmap__fdot--${t}"></i>`;
+      }
+
+      const tips = [`${d.day} ${tamilShort}`];
+      if (d.amount) tips.push(formatAmount(d.amount));
+      if (moon.isSpecial) tips.push(moon.nameEn);
+      if (events?.length) tips.push(events[0].name);
+      const tip = esc(tips.join(" · "));
+
+      return (
+        `<div class="${cls}" data-heatmap-day="${d.day}" title="${tip}" aria-label="${tip}" role="button" tabindex="0">` +
+        `<span class="heatmap__num">${d.day}</span>` +
+        `<span class="heatmap__tdate">${tamilShort}</span>` +
+        `${festDot}` +
+        `</div>`
+      );
     })
     .join("");
+
+  // Moon phase legend — Amavasai / Pournami dates
+  let moonLegend = "";
+  if (moonDays.length) {
+    const chips = moonDays.map((p) =>
+      `<span class="heatmap__moon-chip heatmap__moon-chip--${p.moon.phase}${p.isPast ? " heatmap__moon-chip--past" : ""}">` +
+      `<span class="heatmap__moon-chip-icon">${esc(p.moon.emoji)}</span>` +
+      `<span class="heatmap__moon-chip-label">${p.moon.nameTA}</span>` +
+      `<span class="heatmap__moon-chip-day">${p.day}${ordinal(p.day)}</span>` +
+      `</span>`
+    ).join("");
+    moonLegend = `<div class="heatmap__moon-legend">${chips}</div>`;
+  }
+
+  // Festival chip strip
+  let festStrip = "";
+  if (eventMap && eventMap.size > 0) {
+    const sorted = [...eventMap.entries()].sort(([a], [b]) => a.localeCompare(b));
+    const chips = [];
+    for (const [dk, evts] of sorted) {
+      for (const e of evts) {
+        const dayN = Number(dk.slice(8, 10));
+        const past = dk < todayDk;
+        const safeType = (e.type || "festival").replace(/[^a-z-]/gi, "");
+        chips.push(
+          `<span class="heatmap__fest-chip heatmap__fest-chip--${safeType}${past ? " heatmap__fest-chip--past" : ""}">` +
+          `<span class="heatmap__fest-chip-emoji">${esc(e.emoji || "🎯")}</span>` +
+          `<span class="heatmap__fest-chip-body">` +
+          `<span class="heatmap__fest-chip-name">${esc(e.nameTA || e.name)}</span>` +
+          `<span class="heatmap__fest-chip-date">${dayN}${ordinal(dayN)}</span>` +
+          `</span></span>`
+        );
+      }
+    }
+    if (chips.length) {
+      festStrip = `<div class="heatmap__fest-strip"><div class="heatmap__fest-scroll">${chips.join("")}</div></div>`;
+    }
+  }
+
+  // Spend intensity scale
+  const scale = `
+    <div class="heatmap__scale">
+      <span>Less</span>
+      <i class="heatmap__scale-box heatmap__scale-box--0"></i>
+      <i class="heatmap__scale-box heatmap__scale-box--1"></i>
+      <i class="heatmap__scale-box heatmap__scale-box--2"></i>
+      <i class="heatmap__scale-box heatmap__scale-box--3"></i>
+      <i class="heatmap__scale-box heatmap__scale-box--4"></i>
+      <span>More</span>
+    </div>`;
 
   return `
     <div class="daily-heatmap">
       ${titleBar}
-      <div class="heatmap__grid">${headers}${emptyCells}${cells}</div>
-      <div class="heatmap__scale">
-        <span>Less</span>
-        <div class="heatmap__cell heatmap__cell--0"></div>
-        <div class="heatmap__cell heatmap__cell--1"></div>
-        <div class="heatmap__cell heatmap__cell--2"></div>
-        <div class="heatmap__cell heatmap__cell--3"></div>
-        <div class="heatmap__cell heatmap__cell--4"></div>
-        <span>More</span>
-      </div>
+      <div class="heatmap__grid">${headers}${blanks}${cells}</div>
+      ${scale}
+      ${moonLegend}
+      ${festStrip}
       <div class="heatmap__day-detail" id="heatmapDayDetail" hidden></div>
     </div>
   `;
@@ -255,12 +371,14 @@ export function renderDailyHeatmap(dailyData, currentMonth, formatAmount, year, 
 export function renderDailyBarChart(dailyPoints, formatAmount, todayDay, year, month, dailyBudget) {
   if (!dailyPoints.length) return "";
 
-  // Only show days up to today — no empty future bars
-  const visibleDays = dailyPoints.filter((d) => d.day <= todayDay);
+  // Only show days up to today — no empty future bars; sanitize values
+  const visibleDays = dailyPoints
+    .filter((d) => d.day <= todayDay)
+    .map((d) => ({ ...d, value: Number(d.value) || 0 }));
   if (!visibleDays.length) return "";
 
-  const maxVal = Math.max(...visibleDays.map((d) => d.value), dailyBudget || 0);
-  if (maxVal === 0) return "";
+  const maxVal = Math.max(...visibleDays.map((d) => d.value), Number(dailyBudget) || 0);
+  if (!maxVal || !isFinite(maxVal)) return "";
 
   const padding = { top: 14, right: 8, bottom: 36, left: 8 };
   const width = 420,
