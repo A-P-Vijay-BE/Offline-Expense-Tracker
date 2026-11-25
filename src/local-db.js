@@ -194,11 +194,6 @@ export async function putBudget(budget) {
   return budget;
 }
 
-export async function getBudget(id) {
-  const db = await dbPromise;
-  return db.get(BUDGETS_STORE, id);
-}
-
 export async function getAllBudgets() {
   const db = await dbPromise;
   return db.getAll(BUDGETS_STORE);
@@ -215,11 +210,6 @@ export async function putRecurring(recurring) {
   const db = await dbPromise;
   await db.put(RECURRING_STORE, recurring);
   return recurring;
-}
-
-export async function getRecurring(id) {
-  const db = await dbPromise;
-  return db.get(RECURRING_STORE, id);
 }
 
 export async function getAllRecurring() {

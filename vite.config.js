@@ -29,6 +29,9 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: "autoUpdate",
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.js",
       includeAssets: [
         "icons/icon-192.png",
         "icons/icon-512.png",
@@ -63,34 +66,12 @@ export default defineConfig({
           }
         ]
       },
-      workbox: {
+      injectManifest: {
         globPatterns: ["**/*.{js,css,html,png,svg,ico,webp}"],
-        navigateFallback: "index.html",
-        cleanupOutdatedCaches: true,
-        clientsClaim: true,
-        skipWaiting: true,
-        runtimeCaching: [
-          {
-            urlPattern: /cdn\.jsdelivr\.net\/npm\/tesseract/,
-            handler: "CacheFirst",
-            options: {
-              cacheName: "tesseract-cache",
-              expiration: { maxEntries: 10, maxAgeSeconds: 30 * 24 * 60 * 60 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
-          {
-            urlPattern: /\.(woff2?|ttf|otf)$/,
-            handler: "CacheFirst",
-            options: {
-              cacheName: "font-cache",
-              expiration: { maxEntries: 10, maxAgeSeconds: 365 * 24 * 60 * 60 },
-            },
-          },
-        ],
       },
       devOptions: {
-        enabled: true
+        enabled: true,
+        type: "module",
       }
     })
   ]

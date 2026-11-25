@@ -127,7 +127,7 @@ function _getTamilYearName(gregorianYear) {
     "பிங்கள", "காளயுக்தி", "சித்தார்த்தி", "ரௌத்ரி", "துன்மதி",
     "துந்துபி", "ருத்ரோத்காரி", "ரக்தாட்சி", "குரோதன", "அட்சய",
   ];
-  const index = ((gregorianYear - 2000 + 37) % 60 + 60) % 60;
+  const index = ((gregorianYear - 2000 + 13) % 60 + 60) % 60;
   return names[index] || "";
 }
 

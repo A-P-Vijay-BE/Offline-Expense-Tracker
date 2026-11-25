@@ -70,7 +70,7 @@ function getRollingAverage(debits, category, currentMonth, monthsBack = 3) {
 }
 
 export function generateInsights(expenses, accounts, budgets, formatMoney) {
-  const fmt = formatMoney || formatInsightMoney;
+  const fmt = formatMoney;
   const insights = [];
   const debits = getVisibleDebits(expenses);
   const credits = getVisibleCredits(expenses);
@@ -272,12 +272,4 @@ export function generateInsights(expenses, accounts, budgets, formatMoney) {
   // Sort by priority (highest first), limit to top 5
   insights.sort((a, b) => b.priority - a.priority);
   return insights.slice(0, 5);
-}
-
-function fmt(amount) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(Math.round(amount));
 }

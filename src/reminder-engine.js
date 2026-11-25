@@ -66,7 +66,7 @@ export function isReminderDueToday(rotation) {
  * @param {{ reminderTime: string }} rotation — reminderTime as "HH:MM"
  * @returns {boolean}
  */
-export function isReminderTime(rotation) {
+function isReminderTime(rotation) {
   if (!rotation.reminderTime) return false;
   const [h, m] = rotation.reminderTime.split(":").map(Number);
   if (Number.isNaN(h) || Number.isNaN(m)) return false;
@@ -98,7 +98,7 @@ export function formatRelativeDate(dateStr) {
  * Show a browser notification for a water rotation.
  * @param {{ id: string, name: string, nextDate: string }} rotation
  */
-export function showWaterNotification(rotation) {
+function showWaterNotification(rotation) {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
 
   const key = `${rotation.id}:${rotation.nextDate}`;
@@ -141,7 +141,7 @@ export function showWaterNotification(rotation) {
  * @param {Array} rotations — water rotation objects from DB
  * @returns {Array} rotations that triggered a notification this call
  */
-export function checkWaterReminders(rotations) {
+function checkWaterReminders(rotations) {
   const triggered = [];
 
   for (const rot of rotations) {
@@ -157,26 +157,6 @@ export function checkWaterReminders(rotations) {
   }
 
   return triggered;
-}
-
-/**
- * Manually trigger a test notification for debugging.
- * Call from browser console: import('/src/reminder-engine.js').then(m => m.testNotification())
- */
-export function testNotification() {
-  if (!("Notification" in window)) return "Notifications not supported in this browser";
-  if (Notification.permission !== "granted") {
-    return `Permission is "${Notification.permission}" — click Enable first`;
-  }
-  try {
-    new Notification("🚰 Test Notification", {
-      body: "Notification is working! Innikku thanneer murai!",
-      icon: "/icons/icon-192.png",
-    });
-    return "Notification sent!";
-  } catch (err) {
-    return `Error: ${err.message}`;
-  }
 }
 
 /**

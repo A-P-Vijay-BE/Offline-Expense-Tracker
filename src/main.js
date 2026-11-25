@@ -5,11 +5,10 @@ import {
   initRippleEffect,
   initPageTransitions,
   initScrollHeader,
-  initPullToRefresh,
+
   haptic,
   showSuccessAnimation,
   initSwipeNavigation,
-  initSwipeToDelete,
 } from "./ui-enhancements.js";
 import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { collection, doc, onSnapshot, orderBy, query, setDoc } from "firebase/firestore";
@@ -113,6 +112,53 @@ registerSW({
     showToast("A new version is available. Reopen the app to update.");
   },
 });
+
+// ── Background Reminder Registration ────────────────────────────────────────
+// Register Periodic Background Sync so the service worker can fire water
+// rotation reminders even when the app is not open. Works offline.
+async function registerBackgroundReminders() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+
+    // 1) Periodic Background Sync (best: wakes SW every ~12h even when app is closed)
+    if ("periodicSync" in registration) {
+      try {
+        const status = await navigator.permissions.query({ name: "periodic-background-sync" });
+        if (status.state === "granted") {
+          await registration.periodicSync.register("water-reminder-check", {
+            minInterval: 12 * 60 * 60 * 1000, // 12 hours
+          });
+          console.log("[PWA] ✅ Periodic background sync registered for water reminders");
+        } else {
+          console.log("[PWA] Periodic sync permission:", status.state);
+        }
+      } catch (err) {
+        console.warn("[PWA] Periodic sync registration failed:", err);
+      }
+    }
+
+    // 2) One-shot Background Sync (fallback: fires when connectivity changes)
+    if ("sync" in registration) {
+      try {
+        await registration.sync.register("water-reminder-check");
+        console.log("[PWA] ✅ One-shot background sync registered");
+      } catch (err) {
+        console.warn("[PWA] One-shot sync registration failed:", err);
+      }
+    }
+
+    // 3) Ask SW to check reminders right now (immediate check on app open)
+    if (registration.active) {
+      registration.active.postMessage({ type: "CHECK_WATER_REMINDERS" });
+    }
+  } catch (err) {
+    console.warn("[PWA] Background reminder registration failed:", err);
+  }
+}
+
+// Register after a short delay to let the app initialize
+setTimeout(registerBackgroundReminders, 5000);
 
 // ── Constants ───────────────────────────────────────────────────────────────
 const CATEGORIES = [
@@ -381,12 +427,21 @@ function isCreditForMonth(item, monthKey) {
   return String(item.dateKey).startsWith(monthKey);
 }
 
+let _moneyFmt = null;
+let _moneyFmtLocale = null;
+let _moneyFmtCurrency = null;
+
 function formatMoney(amount) {
-  return new Intl.NumberFormat(appSettings.locale, {
-    style: "currency",
-    currency: appSettings.currency,
-    maximumFractionDigits: 2,
-  }).format(Number(amount || 0));
+  if (_moneyFmtLocale !== appSettings.locale || _moneyFmtCurrency !== appSettings.currency) {
+    _moneyFmtLocale = appSettings.locale;
+    _moneyFmtCurrency = appSettings.currency;
+    _moneyFmt = new Intl.NumberFormat(appSettings.locale, {
+      style: "currency",
+      currency: appSettings.currency,
+      maximumFractionDigits: 2,
+    });
+  }
+  return _moneyFmt.format(Number(amount || 0));
 }
 
 function formatDate(dateKey) {
@@ -1460,14 +1515,40 @@ function renderMotivation() {
   }
 
   let currentSlide = 0;
+  let sweepRaf = null;    // requestAnimationFrame id for border sweep
+
+  function startBorderSweep() {
+    // Cancel any running sweep
+    if (sweepRaf) { cancelAnimationFrame(sweepRaf); sweepRaf = null; }
+    const active = el.insightTrack.querySelector(".insight-slide--active");
+    if (!active) return;
+    active.style.setProperty("--sweep", "0deg");
+    let start = null;
+    const duration = 5000; // matches auto-rotate interval
+    (function tick(ts) {
+      if (!start) start = ts;
+      const p = Math.min((ts - start) / duration, 1);
+      active.style.setProperty("--sweep", `${(p * 360).toFixed(1)}deg`);
+      if (p < 1 && active.classList.contains("insight-slide--active")) {
+        sweepRaf = requestAnimationFrame(tick);
+      }
+    })(performance.now());
+  }
 
   function goToSlide(index) {
     const slides = el.insightTrack.querySelectorAll(".insight-slide");
     const dots = el.insightDots.querySelectorAll(".insight-dot");
-    slides.forEach((s, i) => s.classList.toggle("insight-slide--active", i === index));
+    slides.forEach((s, i) => {
+      s.classList.toggle("insight-slide--active", i === index);
+      if (i !== index) s.style.removeProperty("--sweep");
+    });
     dots.forEach((d, i) => d.classList.toggle("insight-dot--active", i === index));
     currentSlide = index;
+    startBorderSweep();
   }
+
+  // Kick off the first sweep
+  startBorderSweep();
 
   // Dot click handler — remove previous listener to prevent accumulation
   if (el.insightDots._clickHandler) {
@@ -2375,7 +2456,6 @@ function showBirthdayWish() {
   if (!overlay) return;
 
   // Set message
-  const age = new Date().getFullYear() - 1998; // Approximate
   if (msgEl) {
     const messages = [
       `Wishing you the most wonderful birthday! 🌟\nMay this year bring you joy, success & prosperity!`,
@@ -2917,15 +2997,24 @@ function initWaterRotations() {
     }
   );
 
-  // Reset shown notifications at midnight
+  // Reset shown notifications at midnight (both in-app and service worker)
   const now = new Date();
   const msUntilMidnight =
     new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() -
     now.getTime();
   setTimeout(() => {
     resetShownNotifications();
+    // Also clear the SW's shown-notifications cache
+    if (navigator.serviceWorker?.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: "RESET_SHOWN_NOTIFICATIONS" });
+    }
     // Then reset every 24 hours
-    setInterval(resetShownNotifications, 24 * 60 * 60 * 1000);
+    setInterval(() => {
+      resetShownNotifications();
+      if (navigator.serviceWorker?.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: "RESET_SHOWN_NOTIFICATIONS" });
+      }
+    }, 24 * 60 * 60 * 1000);
   }, msUntilMidnight);
 }
 
@@ -7668,7 +7757,8 @@ async function initialize() {
   initRippleEffect();
   initPageTransitions();
   initScrollHeader();
-  initPullToRefresh(() => refreshUI());
+  // Pull-to-refresh removed — accidental triggers while scrolling up
+  // is bad UX for an offline-first app. Use "Refresh Data" in Settings instead.
   initSwipeNavigation(tabs, switchTab);
   initChartTooltips();
   initInsightsSubtabs();

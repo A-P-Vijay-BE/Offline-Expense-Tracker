@@ -446,138 +446,6 @@
         </div>
       </aside>
 
-      <!-- ── Tab Navigation ────────────────────────────────────────── -->
-      <nav class="tab-nav" role="tablist" aria-label="Main navigation">
-        <button
-          id="tabDashboard"
-          class="tab-nav__btn tab-nav__btn--active"
-          role="tab"
-          aria-selected="true"
-          aria-controls="panelDashboard"
-          data-tab="dashboard"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <rect x="3" y="3" width="7" height="7" />
-            <rect x="14" y="3" width="7" height="7" />
-            <rect x="14" y="14" width="7" height="7" />
-            <rect x="3" y="14" width="7" height="7" />
-          </svg>
-          <span>Dashboard</span>
-        </button>
-        <button
-          id="tabAdd"
-          class="tab-nav__btn"
-          role="tab"
-          aria-selected="false"
-          aria-controls="panelAdd"
-          data-tab="add"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          <span>Add</span>
-        </button>
-        <button
-          id="tabAccounts"
-          class="tab-nav__btn"
-          role="tab"
-          aria-selected="false"
-          aria-controls="panelAccounts"
-          data-tab="accounts"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <rect x="2" y="5" width="20" height="14" rx="2" />
-            <line x1="2" y1="10" x2="22" y2="10" />
-          </svg>
-          <span>Accounts</span>
-        </button>
-        <button
-          id="tabHistory"
-          class="tab-nav__btn"
-          role="tab"
-          aria-selected="false"
-          aria-controls="panelHistory"
-          data-tab="history"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <polyline points="12 6 12 12 16 14" />
-          </svg>
-          <span>History</span>
-        </button>
-        <button
-          id="tabInsights"
-          class="tab-nav__btn"
-          role="tab"
-          aria-selected="false"
-          aria-controls="panelInsights"
-          data-tab="insights"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <line x1="18" y1="20" x2="18" y2="10" />
-            <line x1="12" y1="20" x2="12" y2="4" />
-            <line x1="6" y1="20" x2="6" y2="14" />
-          </svg>
-          <span>Insights</span>
-        </button>
-      </nav>
-
       <!-- ── Tab Panels ────────────────────────────────────────────── -->
 
       <!-- Dashboard Panel -->
@@ -1839,6 +1707,47 @@
         </div>
       </section>
     </main>
+
+    <!-- ── Tab Navigation ─── outside main so position:fixed is never broken by ancestor transforms ── -->
+    <nav class="tab-nav" role="tablist" aria-label="Main navigation">
+      <button
+        id="tabDashboard"
+        class="tab-nav__btn tab-nav__btn--active"
+        role="tab"
+        aria-selected="true"
+        aria-controls="panelDashboard"
+        data-tab="dashboard"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+        </svg>
+        <span>Dashboard</span>
+      </button>
+      <button id="tabAdd" class="tab-nav__btn" role="tab" aria-selected="false" aria-controls="panelAdd" data-tab="add">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        <span>Add</span>
+      </button>
+      <button id="tabAccounts" class="tab-nav__btn" role="tab" aria-selected="false" aria-controls="panelAccounts" data-tab="accounts">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>
+        </svg>
+        <span>Accounts</span>
+      </button>
+      <button id="tabHistory" class="tab-nav__btn" role="tab" aria-selected="false" aria-controls="panelHistory" data-tab="history">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <span>History</span>
+      </button>
+      <button id="tabInsights" class="tab-nav__btn" role="tab" aria-selected="false" aria-controls="panelInsights" data-tab="insights">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+        </svg>
+        <span>Insights</span>
+      </button>
+    </nav>
 
     <!-- ── Global FAB (Floating Action Button) ─── always visible, outside main ── -->
     <button

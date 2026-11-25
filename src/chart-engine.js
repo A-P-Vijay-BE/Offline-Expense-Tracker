@@ -256,6 +256,31 @@ export function renderDailyHeatmap(dailyData, currentMonth, formatAmount, year, 
   const today = new Date();
   const todayDk = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
+  // ── Month stats summary ──
+  const totalSpent = dailyData.reduce((s, d) => s + (Number(d.amount) || 0), 0);
+  const spendDays = dailyData.filter((d) => d.amount > 0).length;
+  const avgSpend = spendDays > 0 ? totalSpent / spendDays : 0;
+  const peakDay = dailyData.reduce((mx, d) => (d.amount > mx.amount ? d : mx), dailyData[0]);
+
+  const statsBar = totalSpent > 0 ? `
+    <div class="heatmap__stats">
+      <div class="heatmap__stat">
+        <span class="heatmap__stat-value">${formatAmount(totalSpent)}</span>
+        <span class="heatmap__stat-label">Total</span>
+      </div>
+      <div class="heatmap__stat-divider"></div>
+      <div class="heatmap__stat">
+        <span class="heatmap__stat-value">${formatAmount(Math.round(avgSpend))}</span>
+        <span class="heatmap__stat-label">Daily Avg</span>
+      </div>
+      <div class="heatmap__stat-divider"></div>
+      <div class="heatmap__stat">
+        <span class="heatmap__stat-value heatmap__stat-value--peak">${peakDay.day}<sup>${ordinal(peakDay.day)}</sup> · ${formatAmount(peakDay.amount)}</span>
+        <span class="heatmap__stat-label">🔥 Peak Day</span>
+      </div>
+    </div>
+  ` : "";
+
   // Build cells + collect moon phase days for legend
   const moonDays = [];
   const cells = dailyData
@@ -297,7 +322,7 @@ export function renderDailyHeatmap(dailyData, currentMonth, formatAmount, year, 
       const tip = esc(tips.join(" · "));
 
       return (
-        `<div class="${cls}" data-heatmap-day="${d.day}" title="${tip}" aria-label="${tip}" role="button" tabindex="0">` +
+        `<div class="${cls}" data-heatmap-day="${d.day}" style="--ci:${d.day}" title="${tip}" aria-label="${tip}" role="button" tabindex="0">` +
         `<span class="heatmap__num">${d.day}</span>` +
         `<span class="heatmap__tdate">${tamilShort}</span>` +
         `${festDot}` +
@@ -359,6 +384,7 @@ export function renderDailyHeatmap(dailyData, currentMonth, formatAmount, year, 
   return `
     <div class="daily-heatmap">
       ${titleBar}
+      ${statsBar}
       <div class="heatmap__grid">${headers}${blanks}${cells}</div>
       ${scale}
       ${moonLegend}
@@ -368,83 +394,3 @@ export function renderDailyHeatmap(dailyData, currentMonth, formatAmount, year, 
   `;
 }
 
-export function renderDailyBarChart(dailyPoints, formatAmount, todayDay, year, month, dailyBudget) {
-  if (!dailyPoints.length) return "";
-
-  // Only show days up to today — no empty future bars; sanitize values
-  const visibleDays = dailyPoints
-    .filter((d) => d.day <= todayDay)
-    .map((d) => ({ ...d, value: Number(d.value) || 0 }));
-  if (!visibleDays.length) return "";
-
-  const maxVal = Math.max(...visibleDays.map((d) => d.value), Number(dailyBudget) || 0);
-  if (!maxVal || !isFinite(maxVal)) return "";
-
-  const padding = { top: 14, right: 8, bottom: 36, left: 8 };
-  const width = 420,
-    height = 160;
-  const chartW = width - padding.left - padding.right;
-  const chartH = height - padding.top - padding.bottom;
-  const barGap = visibleDays.length > 15 ? 1 : 3;
-  const barWidth = Math.max(6, (chartW - barGap * visibleDays.length) / visibleDays.length);
-
-  const gridLines = [];
-  for (let i = 0; i <= 3; i++) {
-    const y = padding.top + (i / 3) * chartH;
-    gridLines.push(
-      `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--border-color)" stroke-width="0.5" stroke-dasharray="3,3"/>`
-    );
-  }
-
-  // Budget reference line
-  let budgetLine = "";
-  if (dailyBudget > 0) {
-    const budgetY = padding.top + chartH - (dailyBudget / maxVal) * chartH;
-    budgetLine = `
-      <line x1="${padding.left}" y1="${budgetY.toFixed(1)}" x2="${width - padding.right}" y2="${budgetY.toFixed(1)}" stroke="var(--color-warning)" stroke-width="1" stroke-dasharray="5,3" opacity="0.7"/>
-      <text x="${width - padding.right}" y="${(budgetY - 4).toFixed(1)}" text-anchor="end" class="daily-bar__budget-label">${esc(formatAmount(dailyBudget))}/day</text>
-    `;
-  }
-
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-  const bars = visibleDays.map((d, i) => {
-    const barH = maxVal > 0 ? (d.value / maxVal) * chartH : 0;
-    const x = padding.left + i * (barWidth + barGap);
-    const y = padding.top + chartH - barH;
-    const isToday = d.day === todayDay;
-    const overBudget = dailyBudget > 0 && d.value > dailyBudget;
-    const cls = isToday ? "daily-bar--today" : overBudget ? "daily-bar--over" : d.value === 0 ? "daily-bar--zero" : "";
-    const date = new Date(year, month - 1, d.day);
-    const dayName = dayNames[date.getDay()];
-    const amountStr = d.value > 0 ? formatAmount(d.value) : "No spend";
-    const budgetNote = overBudget ? ` (over budget!)` : "";
-    const tooltip = `${dayName}, ${d.day} — ${esc(amountStr)}${budgetNote}`;
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(0, barH).toFixed(1)}" rx="2" class="daily-bar ${cls}" aria-label="${tooltip}"><title>${tooltip}</title></rect>`;
-  });
-
-  // Label every day if ≤10 days, else every 3rd/5th + day 1 + today
-  const labelInterval = visibleDays.length <= 10 ? 1 : visibleDays.length <= 20 ? 3 : 5;
-  const labels = visibleDays
-    .filter((d) => d.day === 1 || d.day % labelInterval === 0 || d.day === todayDay)
-    .map((d) => {
-      const idx = visibleDays.findIndex((v) => v.day === d.day);
-      const x = padding.left + idx * (barWidth + barGap) + barWidth / 2;
-      const date = new Date(year, month - 1, d.day);
-      const dayName = dayNames[date.getDay()].charAt(0);
-      const isToday = d.day === todayDay;
-      const cls = isToday ? "daily-bar__label--today" : "daily-bar__label";
-      return `<text x="${x.toFixed(1)}" y="${height - 14}" text-anchor="middle" class="${cls}">${d.day}</text><text x="${x.toFixed(1)}" y="${height - 4}" text-anchor="middle" class="daily-bar__day-name">${dayName}</text>`;
-    });
-
-  return `
-    <div class="daily-bar-chart">
-      <svg viewBox="0 0 ${width} ${height}" class="daily-bar-chart__svg" role="img" aria-label="Daily spending bar chart" preserveAspectRatio="xMidYMid meet">
-        ${gridLines.join("")}
-        ${budgetLine}
-        ${bars.join("")}
-        ${labels.join("")}
-      </svg>
-    </div>
-  `;
-}

@@ -72,55 +72,6 @@ export function initScrollHeader() {
   }, { passive: true });
 }
 
-// Pull-to-refresh
-export function initPullToRefresh(refreshCallback) {
-  let startY = 0;
-  let pulling = false;
-  const threshold = 80;
-  let indicator = document.querySelector(".ptr-indicator");
-
-  if (!indicator) {
-    indicator = document.createElement("div");
-    indicator.className = "ptr-indicator";
-    indicator.innerHTML = '<div class="ptr-spinner"></div><span>Pull to refresh</span>';
-    document.querySelector("main")?.prepend(indicator);
-  }
-
-  document.addEventListener("touchstart", (e) => {
-    if (window.scrollY === 0 && e.touches.length === 1) {
-      if (e.target.closest(".modal-overlay:not(.hidden), .settings-panel:not(.hidden), .bottom-sheet:not(.hidden)")) return;
-      startY = e.touches[0].clientY;
-      pulling = true;
-    }
-  }, { passive: true });
-
-  document.addEventListener("touchmove", (e) => {
-    if (!pulling) return;
-    const dy = e.touches[0].clientY - startY;
-    if (dy > 0 && dy < 150) {
-      indicator.style.transform = `translateY(${Math.min(dy * 0.5, 60)}px)`;
-      indicator.style.opacity = Math.min(dy / threshold, 1);
-      if (dy > threshold) indicator.classList.add("ptr-indicator--ready");
-      else indicator.classList.remove("ptr-indicator--ready");
-    }
-  }, { passive: true });
-
-  document.addEventListener("touchend", () => {
-    if (!pulling) return;
-    pulling = false;
-    const ready = indicator.classList.contains("ptr-indicator--ready");
-    indicator.style.transform = "";
-    indicator.style.opacity = "";
-    indicator.classList.remove("ptr-indicator--ready");
-    if (ready) {
-      indicator.classList.add("ptr-indicator--refreshing");
-      if (navigator.vibrate) navigator.vibrate(30);
-      refreshCallback().finally(() => {
-        indicator.classList.remove("ptr-indicator--refreshing");
-      });
-    }
-  });
-}
 
 // Haptic feedback
 export function haptic(style = "light") {
@@ -137,18 +88,6 @@ export function showSuccessAnimation(container) {
   burst.innerHTML = '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" class="success-burst__circle"/><polyline points="8 12 11 15 16 9" class="success-burst__check"/></svg>';
   (container || document.body).appendChild(burst);
   burst.addEventListener("animationend", () => burst.remove());
-}
-
-// Lazy tab rendering
-const renderedTabs = new Set(["dashboard"]);
-export function shouldRenderTab(tabKey) {
-  if (renderedTabs.has(tabKey)) return false;
-  renderedTabs.add(tabKey);
-  return true;
-}
-
-export function markTabRendered(tabKey) {
-  renderedTabs.add(tabKey);
 }
 
 // Swipe-to-delete on history items
